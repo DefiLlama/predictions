@@ -35,6 +35,10 @@ export interface RebuildCategoryOptions {
   requestId?: string;
 }
 
+interface ProviderCategoryRollupOptions {
+  target?: "scope" | "all";
+}
+
 interface CategoryBackfillCursor {
   lastMarketId: number;
   processedCount: number;
@@ -547,7 +551,12 @@ export async function rebuildMarketCategoryAssignments(
   };
 }
 
-export async function refreshProviderCategory1hRollup(providerCode: ProviderCode): Promise<JobRunResult> {
+export async function refreshProviderCategory1hRollup(
+  providerCode: ProviderCode,
+  options?: ProviderCategoryRollupOptions
+): Promise<JobRunResult> {
+  const scopeOnly = options?.target === "scope";
+
   const result = await db.execute(sql`
     with latest_oi as (
       select distinct on (oi.market_id)
@@ -575,6 +584,15 @@ export async function refreshProviderCategory1hRollup(providerCode: ProviderCode
       left join core.provider_category_dim pc on pc.id = mca.provider_category_id
       left join latest_oi lo on lo.market_id = m.id
       where p.code = ${providerCode}
+        and (
+          ${scopeOnly} = false
+          or exists (
+            select 1
+            from core.market_scope ms
+            where ms.platform_id = p.id
+              and ms.market_id = m.id
+          )
+        )
     ),
     sector_agg as (
       select

@@ -13,7 +13,7 @@ import {
   oiPoint5m,
   orderbookTop,
   platform,
-  pricePoint5m,
+  pricePoint,
   providerCategory1h,
   providerCategoryDim,
   providerCategoryMap,
@@ -464,10 +464,10 @@ export async function getMarketDetail(marketUid: string): Promise<{
   const instrumentDetails = await Promise.all(
     instruments.map(async (item) => {
       const [latestPrice] = await db
-        .select({ ts: pricePoint5m.ts, price: pricePoint5m.price })
-        .from(pricePoint5m)
-        .where(eq(pricePoint5m.instrumentId, item.id))
-        .orderBy(desc(pricePoint5m.ts))
+        .select({ ts: pricePoint.ts, price: pricePoint.price })
+        .from(pricePoint)
+        .where(eq(pricePoint.instrumentId, item.id))
+        .orderBy(desc(pricePoint.ts))
         .limit(1);
 
       const [latestOrderbook] = await db
@@ -521,7 +521,7 @@ export async function getMarketPriceHistory(params: {
   marketUid: string;
   from?: Date;
   to?: Date;
-  interval: "5m" | "1h";
+  interval: "1h";
 }): Promise<{
   market: {
     marketUid: string;
@@ -531,7 +531,7 @@ export async function getMarketPriceHistory(params: {
     status: string;
     closeTime: Date | null;
   };
-  interval: "5m" | "1h";
+  interval: "1h";
   from: string;
   to: string;
   instruments: Array<{
@@ -599,43 +599,24 @@ export async function getMarketPriceHistory(params: {
     points?: number;
   };
 
-  let historyRows: HistoryPointRow[] = [];
+  const result = await db.execute(sql`
+    select
+      mp.instrument_id as "instrumentId",
+      mp.bucket_ts as ts,
+      mp.close::text as price,
+      mp.open::text as open,
+      mp.high::text as high,
+      mp.low::text as low,
+      mp.close::text as close,
+      mp.points as points
+    from agg.market_price_1h mp
+    where mp.market_id = ${marketRow.id}
+      and mp.bucket_ts >= ${from}
+      and mp.bucket_ts <= ${to}
+    order by mp.instrument_id asc, mp.bucket_ts asc
+  `);
 
-  if (params.interval === "5m") {
-    const result = await db.execute(sql`
-      select
-        pp.instrument_id as "instrumentId",
-        pp.ts as ts,
-        pp.price::text as price
-      from raw.price_point pp
-      join core.instrument i on i.id = pp.instrument_id
-      where i.market_id = ${marketRow.id}
-        and pp.ts >= ${from}
-        and pp.ts <= ${to}
-      order by pp.instrument_id asc, pp.ts asc
-    `);
-
-    historyRows = result.rows as HistoryPointRow[];
-  } else {
-    const result = await db.execute(sql`
-      select
-        mp.instrument_id as "instrumentId",
-        mp.bucket_ts as ts,
-        mp.close::text as price,
-        mp.open::text as open,
-        mp.high::text as high,
-        mp.low::text as low,
-        mp.close::text as close,
-        mp.points as points
-      from agg.market_price_1h mp
-      where mp.market_id = ${marketRow.id}
-        and mp.bucket_ts >= ${from}
-        and mp.bucket_ts <= ${to}
-      order by mp.instrument_id asc, mp.bucket_ts asc
-    `);
-
-    historyRows = result.rows as HistoryPointRow[];
-  }
+  const historyRows = result.rows as HistoryPointRow[];
 
   const historyByInstrument = new Map<number, HistoryPointRow[]>();
   for (const row of historyRows) {
@@ -664,15 +645,11 @@ export async function getMarketPriceHistory(params: {
       const points = (historyByInstrument.get(item.id) ?? []).map((point) => ({
         ts: (point.ts instanceof Date ? point.ts : new Date(point.ts)).toISOString(),
         price: point.price,
-        ...(params.interval === "1h"
-          ? {
-              open: point.open,
-              high: point.high,
-              low: point.low,
-              close: point.close,
-              points: point.points
-            }
-          : {})
+        open: point.open,
+        high: point.high,
+        low: point.low,
+        close: point.close,
+        points: point.points
       }));
 
       return {
@@ -953,7 +930,7 @@ export async function getVerifySummary(): Promise<{
   const [instrumentCount] = await db.select({ value: count() }).from(instrument);
   const [categoryDimCount] = await db.select({ value: count() }).from(categoryDim);
   const [categoryAssignmentCount] = await db.select({ value: count() }).from(marketCategoryAssignment);
-  const [priceCount] = await db.select({ value: count() }).from(pricePoint5m);
+  const [priceCount] = await db.select({ value: count() }).from(pricePoint);
   const [orderbookCount] = await db.select({ value: count() }).from(orderbookTop);
   const [tradeCount] = await db.select({ value: count() }).from(tradeEvent);
   const [oiCount] = await db.select({ value: count() }).from(oiPoint5m);
@@ -1074,7 +1051,6 @@ export async function getVerifySummary(): Promise<{
       "core.provider_category_dim": providerCategoryDimCount?.value ?? 0,
       "core.provider_category_map": providerCategoryMapCount?.value ?? 0,
       "core.market_scope": scopeCount?.value ?? 0,
-      "raw.price_point_5m": priceCount?.value ?? 0,
       "raw.price_point": priceCount?.value ?? 0,
       "raw.orderbook_top": orderbookCount?.value ?? 0,
       "raw.trade_event": tradeCount?.value ?? 0,

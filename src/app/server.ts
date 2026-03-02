@@ -179,9 +179,9 @@ export async function createServer(): Promise<ReturnType<typeof Fastify>> {
       interval?: string;
     };
 
-    const interval = query.interval ?? "5m";
-    if (interval !== "5m" && interval !== "1h") {
-      return reply.status(400).send({ error: "Invalid interval. Use 5m or 1h." });
+    const interval = query.interval ?? "1h";
+    if (interval !== "1h") {
+      return reply.status(400).send({ error: "Invalid interval. Only 1h is supported." });
     }
 
     const to = query.to ? new Date(query.to) : new Date();
@@ -199,7 +199,7 @@ export async function createServer(): Promise<ReturnType<typeof Fastify>> {
       marketUid,
       from,
       to,
-      interval
+      interval: "1h"
     });
 
     if (!history) {

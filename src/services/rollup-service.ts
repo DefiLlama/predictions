@@ -6,6 +6,7 @@ import type { JobRunResult } from "./job-log-service.js";
 
 interface RollupOptions {
   lookbackHours?: number;
+  target?: "scope" | "all";
 }
 
 function resolveLookbackHours(options?: RollupOptions): number {
@@ -14,6 +15,7 @@ function resolveLookbackHours(options?: RollupOptions): number {
 
 export async function refreshMarketPrice1hRollup(providerCode: ProviderCode, options?: RollupOptions): Promise<JobRunResult> {
   const lookbackHours = resolveLookbackHours(options);
+  const scopeOnly = options?.target === "scope";
 
   const result = await db.execute(sql`
     with source as (
@@ -28,6 +30,15 @@ export async function refreshMarketPrice1hRollup(providerCode: ProviderCode, opt
       join core.platform p on p.id = i.platform_id
       where p.code = ${providerCode}
         and pp.ts >= now() - (${lookbackHours} * interval '1 hour')
+        and (
+          ${scopeOnly} = false
+          or exists (
+            select 1
+            from core.market_scope ms
+            where ms.platform_id = p.id
+              and ms.market_id = i.market_id
+          )
+        )
     ),
     ranked as (
       select
@@ -86,6 +97,7 @@ export async function refreshMarketLiquidity1hRollup(
   options?: RollupOptions
 ): Promise<JobRunResult> {
   const lookbackHours = resolveLookbackHours(options);
+  const scopeOnly = options?.target === "scope";
 
   const result = await db.execute(sql`
     with source as (
@@ -102,6 +114,15 @@ export async function refreshMarketLiquidity1hRollup(
       join core.platform p on p.id = i.platform_id
       where p.code = ${providerCode}
         and ob.ts >= now() - (${lookbackHours} * interval '1 hour')
+        and (
+          ${scopeOnly} = false
+          or exists (
+            select 1
+            from core.market_scope ms
+            where ms.platform_id = p.id
+              and ms.market_id = i.market_id
+          )
+        )
     ),
     aggregated as (
       select
@@ -158,4 +179,3 @@ export async function refreshMarketLiquidity1hRollup(
   const rowsUpserted = Number((result.rows[0] as { value?: number } | undefined)?.value ?? 0);
   return { rowsUpserted, rowsSkipped: 0 };
 }
-

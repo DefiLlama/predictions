@@ -110,7 +110,7 @@ Key constraints:
 5. `provider_category_map` unique `(platform_id, source_kind, source_code)`.
 
 ### `raw` (time series + events)
-1. `raw.price_point_5m`:
+1. `raw.price_point`:
 - key: `(instrument_id, ts)` unique
 - fields: `price`, `source`
 2. `raw.orderbook_top`:
@@ -253,7 +253,7 @@ Job write targets:
 3. `kalshi:sync:metadata` -> `core.event`, `core.market`, `core.instrument`, checkpoint update in `ops.ingest_checkpoint`.
 4. `scope:rebuild` -> rewrites provider rows in `core.market_scope`.
 5. `analytics:category:assign:markets` -> upsert into `core.category_dim`, `core.provider_category_dim`, `core.provider_category_map`, and `core.market_category_assignment`.
-6. `polymarket:sync:prices` and `kalshi:sync:prices` -> upsert into `raw.price_point_5m`.
+6. `polymarket:sync:prices` and `kalshi:sync:prices` -> upsert into `raw.price_point`.
 7. `polymarket:sync:orderbook` and `kalshi:sync:orderbook` -> upsert into `raw.orderbook_top`.
 8. `polymarket:sync:trades` and `kalshi:sync:trades` -> upsert into `raw.trade_event`.
 9. `polymarket:sync:oi` and `kalshi:sync:oi` -> upsert into `raw.oi_point_5m`.

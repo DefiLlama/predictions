@@ -5,11 +5,13 @@ import type { JobRunResult } from "../services/job-log-service.js";
 import { runLoggedJob } from "../services/job-log-service.js";
 import {
   relinkMarketEvents,
+  syncKalshiMetadata,
   syncKalshiMetadataFullCatalog,
   syncKalshiOpenInterest,
   syncKalshiOrderbook,
   syncKalshiPrices,
   syncKalshiTrades,
+  syncPolymarketMetadata,
   syncPolymarketMetadataFullCatalog,
   syncPolymarketOpenInterest,
   syncPolymarketOrderbook,
@@ -251,6 +253,28 @@ function buildTopNLiveSteps(providerCode: ProviderCode, requestId: string): Step
     return [
       {
         providerCode,
+        step: JOB_NAMES.POLYMARKET_SYNC_METADATA,
+        mode: "topN_live",
+        run: () => syncPolymarketMetadata({ requestId })
+      },
+      {
+        providerCode,
+        step: JOB_NAMES.SCOPE_REBUILD,
+        mode: "topN_live",
+        run: async () => ({ rowsUpserted: await rebuildScopeTopN(providerCode), rowsSkipped: 0 })
+      },
+      {
+        providerCode,
+        step: JOB_NAMES.MARKET_RELINK_EVENTS,
+        mode: "topN_live",
+        run: () =>
+          relinkMarketEvents(providerCode, {
+            requestId,
+            target: "scope"
+          })
+      },
+      {
+        providerCode,
         step: JOB_NAMES.POLYMARKET_SYNC_PRICES,
         mode: "topN_live",
         run: () => syncPolymarketPrices({ requestId, scopeStatus: "active", mode: "topN_live" })
@@ -272,11 +296,62 @@ function buildTopNLiveSteps(providerCode: ProviderCode, requestId: string): Step
         step: JOB_NAMES.POLYMARKET_SYNC_OI,
         mode: "topN_live",
         run: () => syncPolymarketOpenInterest({ requestId, scopeStatus: "active", mode: "topN_live" })
+      },
+      {
+        providerCode,
+        step: JOB_NAMES.CATEGORY_ASSIGN_MARKETS,
+        mode: "topN_live",
+        run: () =>
+          rebuildMarketCategoryAssignments(providerCode, {
+            requestId,
+            target: "scope",
+            maxMarkets: env.POLYMARKET_SCOPE_TOP_N
+          })
+      },
+      {
+        providerCode,
+        step: JOB_NAMES.ANALYTICS_ROLLUP_PROVIDER_CATEGORY_1H,
+        mode: "topN_live",
+        run: () => refreshProviderCategory1hRollup(providerCode, { target: "scope" })
+      },
+      {
+        providerCode,
+        step: JOB_NAMES.ANALYTICS_ROLLUP_PRICE_1H,
+        mode: "topN_live",
+        run: () => refreshMarketPrice1hRollup(providerCode, { target: "scope" })
+      },
+      {
+        providerCode,
+        step: JOB_NAMES.ANALYTICS_ROLLUP_LIQUIDITY_1H,
+        mode: "topN_live",
+        run: () => refreshMarketLiquidity1hRollup(providerCode, { target: "scope" })
       }
     ];
   }
 
   return [
+    {
+      providerCode,
+      step: JOB_NAMES.KALSHI_SYNC_METADATA,
+      mode: "topN_live",
+      run: () => syncKalshiMetadata({ requestId })
+    },
+    {
+      providerCode,
+      step: JOB_NAMES.SCOPE_REBUILD,
+      mode: "topN_live",
+      run: async () => ({ rowsUpserted: await rebuildScopeTopN(providerCode), rowsSkipped: 0 })
+    },
+    {
+      providerCode,
+      step: JOB_NAMES.MARKET_RELINK_EVENTS,
+      mode: "topN_live",
+      run: () =>
+        relinkMarketEvents(providerCode, {
+          requestId,
+          target: "scope"
+        })
+    },
     {
       providerCode,
       step: JOB_NAMES.KALSHI_SYNC_PRICES,
@@ -300,6 +375,35 @@ function buildTopNLiveSteps(providerCode: ProviderCode, requestId: string): Step
       step: JOB_NAMES.KALSHI_SYNC_OI,
       mode: "topN_live",
       run: () => syncKalshiOpenInterest({ requestId, scopeStatus: "active", mode: "topN_live" })
+    },
+    {
+      providerCode,
+      step: JOB_NAMES.CATEGORY_ASSIGN_MARKETS,
+      mode: "topN_live",
+      run: () =>
+        rebuildMarketCategoryAssignments(providerCode, {
+          requestId,
+          target: "scope",
+          maxMarkets: env.POLYMARKET_SCOPE_TOP_N
+        })
+    },
+    {
+      providerCode,
+      step: JOB_NAMES.ANALYTICS_ROLLUP_PROVIDER_CATEGORY_1H,
+      mode: "topN_live",
+      run: () => refreshProviderCategory1hRollup(providerCode, { target: "scope" })
+    },
+    {
+      providerCode,
+      step: JOB_NAMES.ANALYTICS_ROLLUP_PRICE_1H,
+      mode: "topN_live",
+      run: () => refreshMarketPrice1hRollup(providerCode, { target: "scope" })
+    },
+    {
+      providerCode,
+      step: JOB_NAMES.ANALYTICS_ROLLUP_LIQUIDITY_1H,
+      mode: "topN_live",
+      run: () => refreshMarketLiquidity1hRollup(providerCode, { target: "scope" })
     }
   ];
 }

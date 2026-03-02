@@ -22,6 +22,7 @@ interface SyncOptions {
 interface RelinkOptions {
   requestId?: string;
   maxMarkets?: number;
+  target?: "scope" | "all";
 }
 
 interface BackfillCursor {
@@ -604,16 +605,29 @@ export async function relinkMarketEvents(providerCode: ProviderCode, options?: R
   const platformId = await getPlatformId(providerCode);
   const adapter = getAdapter(providerCode);
   const maxMarkets = options?.maxMarkets ?? env.MARKET_RELINK_MAX_MARKETS_PER_RUN;
+  const target = options?.target ?? "all";
 
-  const candidateRows = await db
-    .select({
-      marketId: market.id,
-      rawJson: market.rawJson
-    })
-    .from(market)
-    .where(and(eq(market.platformId, platformId), sql`${market.eventId} is null`))
-    .orderBy(market.id)
-    .limit(maxMarkets);
+  const candidateRows =
+    target === "scope"
+      ? await db
+          .select({
+            marketId: market.id,
+            rawJson: market.rawJson
+          })
+          .from(marketScope)
+          .innerJoin(market, eq(market.id, marketScope.marketId))
+          .where(and(eq(marketScope.platformId, platformId), sql`${market.eventId} is null`))
+          .orderBy(market.id)
+          .limit(maxMarkets)
+      : await db
+          .select({
+            marketId: market.id,
+            rawJson: market.rawJson
+          })
+          .from(market)
+          .where(and(eq(market.platformId, platformId), sql`${market.eventId} is null`))
+          .orderBy(market.id)
+          .limit(maxMarkets);
 
   if (candidateRows.length === 0) {
     await setCheckpoint(providerCode, "market:relink:events", {
@@ -678,18 +692,28 @@ export async function relinkMarketEvents(providerCode: ProviderCode, options?: R
   const linked = await applyMarketEventLinks(links, new Date());
   const unresolved = candidateRows.length - linked;
 
-  const remaining = await db.execute(sql`
-    select count(*)::int as value
-    from core.market
-    where platform_id = ${platformId}
-      and event_id is null
-  `);
+  const remaining =
+    target === "scope"
+      ? await db.execute(sql`
+          select count(*)::int as value
+          from core.market_scope ms
+          join core.market m on m.id = ms.market_id
+          where ms.platform_id = ${platformId}
+            and m.event_id is null
+        `)
+      : await db.execute(sql`
+          select count(*)::int as value
+          from core.market
+          where platform_id = ${platformId}
+            and event_id is null
+        `);
 
   const remainingNullEventId = Number((remaining.rows[0] as { value?: number } | undefined)?.value ?? 0);
 
   await setCheckpoint(providerCode, "market:relink:events", {
     lastRunAt: new Date().toISOString(),
     requestId: options?.requestId ?? null,
+    target,
     scanned: candidateRows.length,
     extractedEventRefs: uniqueEventRefs.length,
     missingEventRefs: missingEventRefs.length,
