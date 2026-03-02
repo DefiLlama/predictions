@@ -7,6 +7,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3000),
   LOG_LEVEL: z.enum(["trace", "debug", "info", "warn", "error", "fatal"]).default("info"),
   DATABASE_URL: z.string().url().default("postgres://postgres:postgres@localhost:5432/prediction_markets"),
+  CORS_ORIGIN: z.string().default("*"),
 
   POLYMARKET_GAMMA_BASE_URL: z.string().url().default("https://gamma-api.polymarket.com"),
   POLYMARKET_CLOB_BASE_URL: z.string().url().default("https://clob.polymarket.com"),
@@ -54,6 +55,10 @@ const envSchema = z.object({
   CRON_FULLCAT_LOCK_KEY: z.coerce.bigint().default(161002n),
   CRON_LOCK_TIMEOUT_MS: z.coerce.number().int().nonnegative().default(0),
   CRON_STEP_TIMEOUT_MS: z.coerce.number().int().positive().default(20 * 60 * 1000),
+  FULL_CATALOG_RESUME_INVOCATION_BUDGET_MS: z.coerce.number().int().positive().default(55 * 60 * 1000),
+  FULL_CATALOG_CYCLE_TTL_MS: z.coerce.number().int().positive().default(24 * 60 * 60 * 1000),
+  FULL_CATALOG_MAX_STEP_RETRIES: z.coerce.number().int().positive().default(16),
+  FULL_CATALOG_MAX_STEPS_PER_INVOCATION: z.coerce.number().int().positive().default(1),
   JOB_RUN_STALE_AFTER_MS: z.coerce.number().int().positive().default(60 * 60 * 1000)
 });
 

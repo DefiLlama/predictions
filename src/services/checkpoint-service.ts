@@ -4,7 +4,9 @@ import { db } from "../db/client.js";
 import { ingestCheckpoint } from "../db/schema.js";
 import type { ProviderCode } from "../types/domain.js";
 
-export async function getCheckpoint(providerCode: ProviderCode, jobName: string): Promise<Record<string, unknown> | null> {
+export type CheckpointProviderCode = ProviderCode | "system";
+
+export async function getCheckpoint(providerCode: CheckpointProviderCode, jobName: string): Promise<Record<string, unknown> | null> {
   const rows = await db
     .select({ cursorJson: ingestCheckpoint.cursorJson })
     .from(ingestCheckpoint)
@@ -14,7 +16,11 @@ export async function getCheckpoint(providerCode: ProviderCode, jobName: string)
   return rows[0]?.cursorJson ?? null;
 }
 
-export async function setCheckpoint(providerCode: ProviderCode, jobName: string, cursorJson: Record<string, unknown>): Promise<void> {
+export async function setCheckpoint(
+  providerCode: CheckpointProviderCode,
+  jobName: string,
+  cursorJson: Record<string, unknown>
+): Promise<void> {
   await db
     .insert(ingestCheckpoint)
     .values({ providerCode, jobName, cursorJson, updatedAt: new Date() })

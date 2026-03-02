@@ -1,6 +1,7 @@
 export const JOB_NAMES = {
   CRON_TOPN_LIVE: "cron:topn-live",
   CRON_FULL_CATALOG: "cron:full-catalog",
+  CRON_FULL_CATALOG_RESUME: "cron:full-catalog:resume",
 
   SCOPE_REBUILD: "scope:rebuild",
   MARKET_RELINK_EVENTS: "market:relink:events",

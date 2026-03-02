@@ -4,7 +4,7 @@ import { startServer } from "../app/server.js";
 import { env } from "../config/env.js";
 import { closeDb } from "../db/client.js";
 import { JOB_NAMES } from "../jobs/names.js";
-import { runTopNLivePipeline, runFullCatalogPipeline } from "../cron/pipelines.js";
+import { runTopNLivePipeline, runFullCatalogPipeline, runFullCatalogResumePipeline } from "../cron/pipelines.js";
 import { rebuildMarketCategoryAssignments, refreshProviderCategory1hRollup } from "../services/category-service.js";
 import { releaseLock, tryAcquireLock } from "../services/cron-lock-service.js";
 import {
@@ -39,6 +39,7 @@ Commands:
   server
   cron:topn-live
   cron:full-catalog
+  cron:full-catalog:resume
   ingest:metadata
   ingest:metadata:backfill
   ingest:prices
@@ -259,7 +260,7 @@ async function runCronSkippedLog(jobName: string, requestId: string): Promise<vo
 
 async function runCronCommand(params: {
   jobName: string;
-  mode: "topN_live" | "full_catalog";
+  mode: "topN_live" | "full_catalog" | "full_catalog_resume";
   lockKey: bigint;
   runPipeline: (requestId: string) => Promise<JobRunResult>;
 }): Promise<void> {
@@ -337,6 +338,16 @@ async function main(): Promise<void> {
         mode: "full_catalog",
         lockKey: env.CRON_FULLCAT_LOCK_KEY,
         runPipeline: runFullCatalogPipeline
+      });
+      return;
+    }
+
+    case "cron:full-catalog:resume": {
+      await runCronCommand({
+        jobName: JOB_NAMES.CRON_FULL_CATALOG_RESUME,
+        mode: "full_catalog_resume",
+        lockKey: env.CRON_FULLCAT_LOCK_KEY,
+        runPipeline: runFullCatalogResumePipeline
       });
       return;
     }
@@ -583,14 +594,22 @@ async function main(): Promise<void> {
   }
 }
 
-main()
-  .then(async () => {
-    if (COMMAND !== "server") {
+async function finalizeCli(exitCode: number): Promise<never> {
+  if (COMMAND !== "server") {
+    try {
       await closeDb();
+    } catch (error) {
+      logger.error({ error }, "Failed to close DB during CLI shutdown");
+      exitCode = 1;
     }
-  })
-  .catch(async (error) => {
+  }
+
+  process.exit(exitCode);
+}
+
+main()
+  .then(() => finalizeCli(0))
+  .catch((error) => {
     logger.error({ error }, "CLI command failed");
-    await closeDb();
-    process.exitCode = 1;
+    return finalizeCli(1);
   });

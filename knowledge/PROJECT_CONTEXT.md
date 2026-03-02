@@ -13,7 +13,7 @@ The system is a provider-agnostic prediction market ingestion service.
 Core flow:
 1. Provider adapters fetch and normalize external data.
 2. Ingestion services upsert normalized data into Postgres (`core`, `raw`, `agg`, `ops`).
-3. Cron commands execute explicit ingestion pipelines (`topN_live`, `full_catalog`) with DB advisory lock overlap guards.
+3. Cron commands execute explicit ingestion pipelines (`topN_live`, `full_catalog`, `full_catalog_resume`) with DB advisory lock overlap guards.
 4. Query services read from canonical tables and expose API payloads through Fastify.
 
 Architectural principle:
@@ -220,6 +220,7 @@ Implemented job names:
 1. Shared:
 - `cron:topn-live`
 - `cron:full-catalog`
+- `cron:full-catalog:resume`
 - `scope:rebuild`
 - `analytics:category:assign:markets`
 - `analytics:rollup:price:1h`
@@ -271,7 +272,11 @@ Cadence:
 - mode: `full_catalog`
 - scope source: active markets from `core.market`/`core.instrument` with cursorized batch selection
 - steps per provider: metadata, market-event relink, scope rebuild, full-catalog prices/orderbook/trades/oi, category assignment, provider-category rollup, hourly price/liquidity rollups
-3. Overlap policy:
+3. `cron:full-catalog:resume` (recommended every 15 minutes where scheduler timeout is strict):
+- mode: `full_catalog`
+- orchestration state: provider/step pointer persisted in `ops.ingest_checkpoint` under system key
+- each invocation executes bounded work and resumes from latest provider/step on next invocation
+4. Overlap policy:
 - each cron command acquires a DB advisory lock
 - if lock is held, run is skipped and logged (`skipped_lock_held`)
 

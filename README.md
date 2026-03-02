@@ -24,6 +24,8 @@ npm install
 cp .env.example .env
 ```
 
+`CORS_ORIGIN` controls API CORS allowlist (`*` for open, or comma-separated origins).
+
 3. Create DB, run migrations, seed providers:
 
 ```bash
@@ -43,14 +45,17 @@ Cron pipelines:
 ```bash
 npm run cron:topn-live
 npm run cron:full-catalog
+npm run cron:full-catalog:resume
 ```
 
 Recommended Coolify cron entries:
 
 ```cron
 */5 * * * * npm run cron:topn-live
-0 */4 * * * npm run cron:full-catalog
+*/15 * * * * npm run cron:full-catalog:resume
 ```
+
+`cron:full-catalog` remains available as a monolithic/manual run. For environments with strict timeout caps, prefer `cron:full-catalog:resume`.
 
 Manual ingestion (direct execution, no queue):
 
@@ -91,6 +96,7 @@ npm test
 
 - `topN_live`: `core.market_scope`-based prioritized ingestion, designed for 5-minute cadence.
 - `full_catalog`: active-market full-universe ingestion using batched selectors from `core.market`/`core.instrument`, designed for low-frequency cadence.
+- `full_catalog_resume`: full-catalog state machine that checkpoints provider/step progress (`ops.ingest_checkpoint`) and resumes from the latest step on the next invocation.
 
 ## API Endpoints
 

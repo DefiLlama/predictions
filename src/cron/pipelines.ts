@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { rebuildMarketCategoryAssignments, refreshProviderCategory1hRollup } from "../services/category-service.js";
+import { getCheckpoint, setCheckpoint } from "../services/checkpoint-service.js";
 import type { JobRunResult } from "../services/job-log-service.js";
 import { runLoggedJob } from "../services/job-log-service.js";
 import {
@@ -40,8 +41,27 @@ interface PipelineCounters {
   partials: number;
 }
 
+interface FullCatalogResumeState {
+  version: 1;
+  cycleId: string;
+  cycleStartedAt: string;
+  cycleExpiresAt: string;
+  providerIndex: number;
+  stepIndex: number;
+  stepRetries: number;
+  currentProvider: ProviderCode;
+  currentStep: string;
+  lastRequestId: string | null;
+  lastStepStartedAt: string | null;
+  lastStepFinishedAt: string | null;
+  updatedAt: string;
+}
+
 const STEP_DB_RETRY_MAX_ATTEMPTS = 2;
 const STEP_DB_RETRY_BACKOFF_MS = 1_500;
+const FULL_CATALOG_RESUME_CHECKPOINT_PROVIDER = "system";
+const FULL_CATALOG_RESUME_CHECKPOINT_KEY = "cron:full-catalog:resume:v1";
+const FULL_CATALOG_PROVIDERS = ["polymarket", "kalshi"] satisfies ProviderCode[];
 
 const RETRYABLE_DB_ERROR_CODES = new Set([
   "08000",
@@ -246,6 +266,142 @@ async function runProviderSteps(
   );
 
   return counters;
+}
+
+function parseFiniteNumber(value: unknown, fallback = 0): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return fallback;
+}
+
+function parseIso(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+
+  return new Date(parsed).toISOString();
+}
+
+function clampProviderIndex(index: number): number {
+  if (index < 0) {
+    return 0;
+  }
+
+  if (index >= FULL_CATALOG_PROVIDERS.length) {
+    return FULL_CATALOG_PROVIDERS.length - 1;
+  }
+
+  return index;
+}
+
+function createFullCatalogResumeState(now: Date, requestId?: string): FullCatalogResumeState {
+  const cycleStartedAt = now.toISOString();
+  const cycleExpiresAt = new Date(now.getTime() + env.FULL_CATALOG_CYCLE_TTL_MS).toISOString();
+
+  return {
+    version: 1,
+    cycleId: randomUUID(),
+    cycleStartedAt,
+    cycleExpiresAt,
+    providerIndex: 0,
+    stepIndex: 0,
+    stepRetries: 0,
+    currentProvider: FULL_CATALOG_PROVIDERS[0],
+    currentStep: JOB_NAMES.POLYMARKET_SYNC_METADATA,
+    lastRequestId: requestId ?? null,
+    lastStepStartedAt: null,
+    lastStepFinishedAt: null,
+    updatedAt: cycleStartedAt
+  };
+}
+
+function parseFullCatalogResumeState(raw: Record<string, unknown> | null): FullCatalogResumeState | null {
+  if (!raw || raw.version !== 1) {
+    return null;
+  }
+
+  const cycleId = typeof raw.cycleId === "string" && raw.cycleId.trim().length > 0 ? raw.cycleId : null;
+  const cycleStartedAt = parseIso(raw.cycleStartedAt);
+  const cycleExpiresAt = parseIso(raw.cycleExpiresAt);
+
+  if (!cycleId || !cycleStartedAt || !cycleExpiresAt) {
+    return null;
+  }
+
+  const providerIndex = clampProviderIndex(Math.floor(parseFiniteNumber(raw.providerIndex, 0)));
+  const currentProvider = FULL_CATALOG_PROVIDERS[providerIndex];
+
+  return {
+    version: 1,
+    cycleId,
+    cycleStartedAt,
+    cycleExpiresAt,
+    providerIndex,
+    stepIndex: Math.max(0, Math.floor(parseFiniteNumber(raw.stepIndex, 0))),
+    stepRetries: Math.max(0, Math.floor(parseFiniteNumber(raw.stepRetries, 0))),
+    currentProvider,
+    currentStep: typeof raw.currentStep === "string" && raw.currentStep.length > 0 ? raw.currentStep : JOB_NAMES.POLYMARKET_SYNC_METADATA,
+    lastRequestId: typeof raw.lastRequestId === "string" ? raw.lastRequestId : null,
+    lastStepStartedAt: parseIso(raw.lastStepStartedAt),
+    lastStepFinishedAt: parseIso(raw.lastStepFinishedAt),
+    updatedAt: parseIso(raw.updatedAt) ?? cycleStartedAt
+  };
+}
+
+async function saveFullCatalogResumeState(state: FullCatalogResumeState): Promise<void> {
+  await setCheckpoint(
+    FULL_CATALOG_RESUME_CHECKPOINT_PROVIDER,
+    FULL_CATALOG_RESUME_CHECKPOINT_KEY,
+    state as unknown as Record<string, unknown>
+  );
+}
+
+async function loadFullCatalogResumeState(requestId: string): Promise<FullCatalogResumeState> {
+  const now = new Date();
+  const raw = await getCheckpoint(FULL_CATALOG_RESUME_CHECKPOINT_PROVIDER, FULL_CATALOG_RESUME_CHECKPOINT_KEY);
+  const parsed = parseFullCatalogResumeState(raw);
+  const nowMs = now.getTime();
+
+  if (!parsed || Date.parse(parsed.cycleExpiresAt) <= nowMs) {
+    const initialized = createFullCatalogResumeState(now, requestId);
+    await saveFullCatalogResumeState(initialized);
+    return initialized;
+  }
+
+  return parsed;
+}
+
+function resolveCurrentFullCatalogStep(state: FullCatalogResumeState, requestId: string): StepDefinition | null {
+  while (state.providerIndex < FULL_CATALOG_PROVIDERS.length) {
+    const providerCode = FULL_CATALOG_PROVIDERS[state.providerIndex]!;
+    const steps = buildFullCatalogSteps(providerCode, requestId);
+    if (state.stepIndex < steps.length) {
+      const currentStep = steps[state.stepIndex]!;
+      state.currentProvider = providerCode;
+      state.currentStep = currentStep.step;
+      return currentStep;
+    }
+
+    state.providerIndex += 1;
+    state.stepIndex = 0;
+    state.stepRetries = 0;
+  }
+
+  return null;
 }
 
 function buildTopNLiveSteps(providerCode: ProviderCode, requestId: string): StepDefinition[] {
@@ -623,6 +779,129 @@ export async function runFullCatalogPipeline(requestIdInput?: string): Promise<J
       durationMs: Date.now() - startedAt,
       rowsUpserted: summary.rowsUpserted,
       rowsSkipped: summary.rowsSkipped,
+      status: summary.partialReason ? "partial_success" : "success"
+    },
+    "Cron pipeline summary"
+  );
+
+  return summary;
+}
+
+export async function runFullCatalogResumePipeline(requestIdInput?: string): Promise<JobRunResult> {
+  const requestId = requestIdInput ?? randomUUID();
+  const pipeline = "full_catalog_resume";
+  const startedAt = Date.now();
+  const invocationBudgetMs = env.FULL_CATALOG_RESUME_INVOCATION_BUDGET_MS;
+  const deadline = startedAt + invocationBudgetMs;
+
+  let rowsUpserted = 0;
+  let rowsSkipped = 0;
+  let partials = 0;
+  let executedSteps = 0;
+
+  let state = await loadFullCatalogResumeState(requestId);
+  const maxSteps = env.FULL_CATALOG_MAX_STEPS_PER_INVOCATION;
+
+  while (executedSteps < maxSteps && Date.now() < deadline) {
+    const step = resolveCurrentFullCatalogStep(state, requestId);
+    if (!step) {
+      logger.info(
+        {
+          pipeline,
+          requestId,
+          cycleId: state.cycleId,
+          status: "completed"
+        },
+        "Full catalog cycle completed, resetting resume state"
+      );
+
+      state = createFullCatalogResumeState(new Date(), requestId);
+      await saveFullCatalogResumeState(state);
+      break;
+    }
+
+    state.lastRequestId = requestId;
+    state.lastStepStartedAt = new Date().toISOString();
+    state.lastStepFinishedAt = null;
+    state.updatedAt = state.lastStepStartedAt;
+    await saveFullCatalogResumeState(state);
+
+    try {
+      const result = await runPipelineStep(requestId, pipeline, step);
+      rowsUpserted += result.rowsUpserted;
+      rowsSkipped += result.rowsSkipped;
+      if (result.partialReason) {
+        partials += 1;
+      }
+
+      state.stepRetries = 0;
+      state.stepIndex += 1;
+      state.lastStepFinishedAt = new Date().toISOString();
+      state.updatedAt = state.lastStepFinishedAt;
+      await saveFullCatalogResumeState(state);
+      executedSteps += 1;
+    } catch (error) {
+      state.stepRetries += 1;
+      state.lastStepFinishedAt = new Date().toISOString();
+      state.updatedAt = state.lastStepFinishedAt;
+      await saveFullCatalogResumeState(state);
+
+      if (state.stepRetries >= env.FULL_CATALOG_MAX_STEP_RETRIES) {
+        logger.error(
+          {
+            pipeline,
+            requestId,
+            cycleId: state.cycleId,
+            provider: state.currentProvider,
+            step: state.currentStep,
+            stepRetries: state.stepRetries,
+            maxStepRetries: env.FULL_CATALOG_MAX_STEP_RETRIES
+          },
+          "Full catalog resume reached step retry cap, skipping step"
+        );
+
+        partials += 1;
+        state.stepRetries = 0;
+        state.stepIndex += 1;
+        state.updatedAt = new Date().toISOString();
+        await saveFullCatalogResumeState(state);
+        executedSteps += 1;
+        continue;
+      }
+
+      throw error;
+    }
+  }
+
+  const timedOut = Date.now() >= deadline;
+  const partialReasonParts: string[] = [];
+  if (partials > 0) {
+    partialReasonParts.push(`${partials} step(s) returned partial_success or were skipped after retry cap`);
+  }
+  if (timedOut) {
+    partialReasonParts.push("invocation budget reached");
+  }
+
+  const summary: JobRunResult = {
+    rowsUpserted,
+    rowsSkipped,
+    partialReason: partialReasonParts.length > 0 ? partialReasonParts.join("; ") : null
+  };
+
+  const nextStep = resolveCurrentFullCatalogStep(state, requestId);
+
+  logger.info(
+    {
+      pipeline,
+      requestId,
+      durationMs: Date.now() - startedAt,
+      invocationBudgetMs,
+      executedSteps,
+      rowsUpserted,
+      rowsSkipped,
+      partials,
+      nextProvider: nextStep?.providerCode ?? null,
+      nextStep: nextStep?.step ?? null,
       status: summary.partialReason ? "partial_success" : "success"
     },
     "Cron pipeline summary"

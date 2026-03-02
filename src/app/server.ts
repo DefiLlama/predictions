@@ -1,4 +1,5 @@
 import Fastify from "fastify";
+import cors from "@fastify/cors";
 import { sql } from "drizzle-orm";
 
 import { env } from "../config/env.js";
@@ -22,8 +23,30 @@ function isProviderCode(value: string | undefined): value is ProviderCode {
   return value === "polymarket" || value === "kalshi";
 }
 
+function resolveCorsOrigin(originValue: string): true | string | string[] {
+  const normalized = originValue.trim();
+  if (normalized === "" || normalized === "*") {
+    return true;
+  }
+
+  const origins = normalized
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+
+  if (origins.length <= 1) {
+    return origins[0] ?? true;
+  }
+
+  return origins;
+}
+
 export async function createServer(): Promise<ReturnType<typeof Fastify>> {
   const app = Fastify({ logger: false });
+  await app.register(cors, {
+    origin: resolveCorsOrigin(env.CORS_ORIGIN),
+    methods: ["GET", "HEAD", "OPTIONS"]
+  });
 
   app.get("/healthz", async () => ({ status: "ok", timestamp: new Date().toISOString() }));
 

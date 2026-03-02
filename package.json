@@ -12,6 +12,7 @@
     "start": "tsx src/cli/main.ts server",
     "cron:topn-live": "tsx src/cli/main.ts cron:topn-live",
     "cron:full-catalog": "tsx src/cli/main.ts cron:full-catalog",
+    "cron:full-catalog:resume": "tsx src/cli/main.ts cron:full-catalog:resume",
     "ingest:metadata": "tsx src/cli/main.ts ingest:metadata",
     "ingest:metadata:backfill": "tsx src/cli/main.ts ingest:metadata:backfill",
     "ingest:prices": "tsx src/cli/main.ts ingest:prices",
@@ -39,6 +40,7 @@
     "test": "tsx --test src/**/*.test.ts"
   },
   "dependencies": {
+    "@fastify/cors": "^11.2.0",
     "dotenv": "^17.3.1",
     "drizzle-orm": "^0.45.1",
     "fastify": "^5.7.4",
