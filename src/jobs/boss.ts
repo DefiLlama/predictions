@@ -281,10 +281,11 @@ async function registerSchedules(boss: PgBoss): Promise<void> {
     const queueName = queueNameByJobName[schedule.jobName];
     const cron = intervalMsToCron(schedule.intervalMs);
     const singletonSeconds = Math.max(60, Math.ceil(schedule.intervalMs / 1000));
+    const scheduleKey = schedule.key.replaceAll(":", "_");
 
     await boss.schedule(queueName, cron, schedule.payload, {
-      key: schedule.key,
-      singletonKey: schedule.key,
+      key: scheduleKey,
+      singletonKey: scheduleKey,
       singletonSeconds
     });
   }
