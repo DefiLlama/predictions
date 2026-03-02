@@ -535,12 +535,15 @@ export class PolymarketAdapter implements ProviderAdapter {
 
   async listTrades(markets: AdapterMarketInput[], window: PriceWindow): Promise<NormalizedTradeEvent[]> {
     const pageLimit = 500;
+    const maxHistoricalOffset = 3000;
+    const maxPagesByOffset = Math.floor(maxHistoricalOffset / pageLimit) + 1;
+    const maxPages = Math.min(env.POLYMARKET_TRADES_MAX_PAGES, maxPagesByOffset);
     const points: NormalizedTradeEvent[] = [];
     const startMs = window.startTs * 1000;
     const endMs = window.endTs * 1000;
 
     await mapWithConcurrency(markets, 2, async (marketInput) => {
-      for (let page = 0; page < env.POLYMARKET_TRADES_MAX_PAGES; page += 1) {
+      for (let page = 0; page < maxPages; page += 1) {
         const offset = page * pageLimit;
 
         const url = new URL("/trades", env.POLYMARKET_DATA_BASE_URL);
