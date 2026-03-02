@@ -1,0 +1,47 @@
+export const JOB_NAMES = {
+  SCOPE_REBUILD: "scope:rebuild",
+  MARKET_RELINK_EVENTS: "market:relink:events",
+  CATEGORY_ASSIGN_MARKETS: "analytics:category:assign:markets",
+  ANALYTICS_ROLLUP_PRICE_1H: "analytics:rollup:price:1h",
+  ANALYTICS_ROLLUP_LIQUIDITY_1H: "analytics:rollup:liquidity:1h",
+  ANALYTICS_ROLLUP_PROVIDER_CATEGORY_1H: "analytics:rollup:provider-category:1h",
+
+  POLYMARKET_SYNC_METADATA: "polymarket:sync:metadata",
+  POLYMARKET_SYNC_METADATA_BACKFILL_FULL: "polymarket:sync:metadata:backfill_full",
+  POLYMARKET_SYNC_PRICES: "polymarket:sync:prices",
+  POLYMARKET_SYNC_ORDERBOOK: "polymarket:sync:orderbook",
+  POLYMARKET_SYNC_TRADES: "polymarket:sync:trades",
+  POLYMARKET_SYNC_OI: "polymarket:sync:oi",
+
+  KALSHI_SYNC_METADATA: "kalshi:sync:metadata",
+  KALSHI_SYNC_PRICES: "kalshi:sync:prices",
+  KALSHI_SYNC_ORDERBOOK: "kalshi:sync:orderbook",
+  KALSHI_SYNC_TRADES: "kalshi:sync:trades",
+  KALSHI_SYNC_OI: "kalshi:sync:oi"
+} as const;
+
+export type JobName = (typeof JOB_NAMES)[keyof typeof JOB_NAMES];
+
+export const ACTIVE_WORKER_JOB_NAMES: JobName[] = [
+  JOB_NAMES.SCOPE_REBUILD,
+  JOB_NAMES.MARKET_RELINK_EVENTS,
+  JOB_NAMES.CATEGORY_ASSIGN_MARKETS,
+  JOB_NAMES.ANALYTICS_ROLLUP_PRICE_1H,
+  JOB_NAMES.ANALYTICS_ROLLUP_LIQUIDITY_1H,
+  JOB_NAMES.ANALYTICS_ROLLUP_PROVIDER_CATEGORY_1H,
+
+  JOB_NAMES.POLYMARKET_SYNC_METADATA,
+  JOB_NAMES.POLYMARKET_SYNC_METADATA_BACKFILL_FULL,
+  JOB_NAMES.POLYMARKET_SYNC_PRICES,
+  JOB_NAMES.POLYMARKET_SYNC_ORDERBOOK,
+  JOB_NAMES.POLYMARKET_SYNC_TRADES,
+  JOB_NAMES.POLYMARKET_SYNC_OI,
+
+  JOB_NAMES.KALSHI_SYNC_METADATA,
+  JOB_NAMES.KALSHI_SYNC_PRICES,
+  JOB_NAMES.KALSHI_SYNC_ORDERBOOK,
+  JOB_NAMES.KALSHI_SYNC_TRADES,
+  JOB_NAMES.KALSHI_SYNC_OI
+];
+
+export const ALL_JOB_NAMES: JobName[] = [...ACTIVE_WORKER_JOB_NAMES];
