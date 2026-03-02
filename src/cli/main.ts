@@ -608,8 +608,17 @@ async function finalizeCli(exitCode: number): Promise<never> {
 }
 
 main()
-  .then(() => finalizeCli(0))
+  .then(() => {
+    if (COMMAND !== "server") {
+      return finalizeCli(0);
+    }
+  })
   .catch((error) => {
     logger.error({ error }, "CLI command failed");
-    return finalizeCli(1);
+
+    if (COMMAND !== "server") {
+      return finalizeCli(1);
+    }
+
+    process.exitCode = 1;
   });
