@@ -201,6 +201,70 @@ function normalizeStatus(status: string | null): "active" | "closed" | "archived
   return "unknown";
 }
 
+function normalizeWhitespace(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function stripLeadingNot(value: string): string {
+  return value.replace(/^not\s+/i, "").trim();
+}
+
+function areEquivalentLabels(left: string, right: string): boolean {
+  const normalizedLeft = normalizeWhitespace(stripLeadingNot(left)).toLowerCase();
+  const normalizedRight = normalizeWhitespace(stripLeadingNot(right)).toLowerCase();
+  return normalizedLeft.length > 0 && normalizedLeft === normalizedRight;
+}
+
+function toNegativeLabel(label: string): string {
+  const normalized = normalizeWhitespace(label);
+  if (normalized.length === 0) {
+    return "NO";
+  }
+
+  if (/^not\s+/i.test(normalized)) {
+    return normalized;
+  }
+
+  return `Not ${normalized}`;
+}
+
+function deriveKalshiOutcomeLabels(raw: Record<string, unknown>): { yesLabel: string; noLabel: string } {
+  const yesCandidate =
+    asString(raw.yes_sub_title) ?? asString(raw.yes_title) ?? asString(raw.subtitle) ?? asString(raw.sub_title) ?? null;
+  const noCandidate = asString(raw.no_sub_title) ?? asString(raw.no_title) ?? null;
+
+  if (!yesCandidate && !noCandidate) {
+    return { yesLabel: "YES", noLabel: "NO" };
+  }
+
+  if (yesCandidate && noCandidate) {
+    if (areEquivalentLabels(yesCandidate, noCandidate)) {
+      return {
+        yesLabel: normalizeWhitespace(yesCandidate),
+        noLabel: toNegativeLabel(yesCandidate)
+      };
+    }
+
+    return {
+      yesLabel: normalizeWhitespace(yesCandidate),
+      noLabel: normalizeWhitespace(noCandidate)
+    };
+  }
+
+  if (yesCandidate) {
+    return {
+      yesLabel: normalizeWhitespace(yesCandidate),
+      noLabel: toNegativeLabel(yesCandidate)
+    };
+  }
+
+  const normalizedNo = normalizeWhitespace(noCandidate!);
+  return {
+    yesLabel: /^not\s+/i.test(normalizedNo) ? stripLeadingNot(normalizedNo) : "YES",
+    noLabel: normalizedNo
+  };
+}
+
 async function fetchKalshiCursorPagesWithState<T>(
   path: string,
   listKey: string,
@@ -447,27 +511,34 @@ export class KalshiAdapter implements ProviderAdapter {
     const instruments: NormalizedInstrument[] = [];
 
     for (const market of markets) {
+      const raw = asObject(market.rawJson);
+      const { yesLabel, noLabel } = deriveKalshiOutcomeLabels(raw);
+
       instruments.push({
         marketRef: market.marketRef,
         instrumentRef: this.normalizeInstrumentRef(`${market.marketRef}:YES`),
-        outcomeLabel: "YES",
+        outcomeLabel: yesLabel,
         outcomeIndex: 0,
         isPrimary: true,
         rawJson: {
           synthetic: true,
-          side: "YES"
+          side: "YES",
+          yesLabel,
+          noLabel
         }
       });
 
       instruments.push({
         marketRef: market.marketRef,
         instrumentRef: this.normalizeInstrumentRef(`${market.marketRef}:NO`),
-        outcomeLabel: "NO",
+        outcomeLabel: noLabel,
         outcomeIndex: 1,
         isPrimary: false,
         rawJson: {
           synthetic: true,
-          side: "NO"
+          side: "NO",
+          yesLabel,
+          noLabel
         }
       });
     }
