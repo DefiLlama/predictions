@@ -212,6 +212,70 @@ export const jobHandlers: JobHandlerMap = {
     );
   },
 
+  [JOB_NAMES.POLYMARKET_SYNC_PRICES_FULL_CATALOG]: async (payload) => {
+    await runLoggedJob(
+      {
+        providerCode: "polymarket",
+        jobName: JOB_NAMES.POLYMARKET_SYNC_PRICES_FULL_CATALOG,
+        requestId: payload.requestId
+      },
+      async () =>
+        syncPolymarketPrices({
+          requestId: payload.requestId,
+          scopeStatus: "active",
+          mode: "full_catalog"
+        })
+    );
+  },
+
+  [JOB_NAMES.POLYMARKET_SYNC_ORDERBOOK_FULL_CATALOG]: async (payload) => {
+    await runLoggedJob(
+      {
+        providerCode: "polymarket",
+        jobName: JOB_NAMES.POLYMARKET_SYNC_ORDERBOOK_FULL_CATALOG,
+        requestId: payload.requestId
+      },
+      async () =>
+        syncPolymarketOrderbook({
+          requestId: payload.requestId,
+          scopeStatus: "active",
+          mode: "full_catalog"
+        })
+    );
+  },
+
+  [JOB_NAMES.POLYMARKET_SYNC_TRADES_FULL_CATALOG]: async (payload) => {
+    await runLoggedJob(
+      {
+        providerCode: "polymarket",
+        jobName: JOB_NAMES.POLYMARKET_SYNC_TRADES_FULL_CATALOG,
+        requestId: payload.requestId
+      },
+      async () =>
+        syncPolymarketTrades({
+          requestId: payload.requestId,
+          scopeStatus: "active",
+          mode: "full_catalog"
+        })
+    );
+  },
+
+  [JOB_NAMES.POLYMARKET_SYNC_OI_FULL_CATALOG]: async (payload) => {
+    await runLoggedJob(
+      {
+        providerCode: "polymarket",
+        jobName: JOB_NAMES.POLYMARKET_SYNC_OI_FULL_CATALOG,
+        requestId: payload.requestId
+      },
+      async () =>
+        syncPolymarketOpenInterest({
+          requestId: payload.requestId,
+          scopeStatus: "active",
+          mode: "full_catalog"
+        })
+    );
+  },
+
   [JOB_NAMES.KALSHI_SYNC_METADATA]: async (payload) => {
     await runLoggedJob(
       {
@@ -287,6 +351,70 @@ export const jobHandlers: JobHandlerMap = {
         syncKalshiOpenInterest({
           requestId: payload.requestId,
           scopeStatus: scopeStatus ?? "all"
+        })
+    );
+  },
+
+  [JOB_NAMES.KALSHI_SYNC_PRICES_FULL_CATALOG]: async (payload) => {
+    await runLoggedJob(
+      {
+        providerCode: "kalshi",
+        jobName: JOB_NAMES.KALSHI_SYNC_PRICES_FULL_CATALOG,
+        requestId: payload.requestId
+      },
+      async () =>
+        syncKalshiPrices({
+          requestId: payload.requestId,
+          scopeStatus: "active",
+          mode: "full_catalog"
+        })
+    );
+  },
+
+  [JOB_NAMES.KALSHI_SYNC_ORDERBOOK_FULL_CATALOG]: async (payload) => {
+    await runLoggedJob(
+      {
+        providerCode: "kalshi",
+        jobName: JOB_NAMES.KALSHI_SYNC_ORDERBOOK_FULL_CATALOG,
+        requestId: payload.requestId
+      },
+      async () =>
+        syncKalshiOrderbook({
+          requestId: payload.requestId,
+          scopeStatus: "active",
+          mode: "full_catalog"
+        })
+    );
+  },
+
+  [JOB_NAMES.KALSHI_SYNC_TRADES_FULL_CATALOG]: async (payload) => {
+    await runLoggedJob(
+      {
+        providerCode: "kalshi",
+        jobName: JOB_NAMES.KALSHI_SYNC_TRADES_FULL_CATALOG,
+        requestId: payload.requestId
+      },
+      async () =>
+        syncKalshiTrades({
+          requestId: payload.requestId,
+          scopeStatus: "active",
+          mode: "full_catalog"
+        })
+    );
+  },
+
+  [JOB_NAMES.KALSHI_SYNC_OI_FULL_CATALOG]: async (payload) => {
+    await runLoggedJob(
+      {
+        providerCode: "kalshi",
+        jobName: JOB_NAMES.KALSHI_SYNC_OI_FULL_CATALOG,
+        requestId: payload.requestId
+      },
+      async () =>
+        syncKalshiOpenInterest({
+          requestId: payload.requestId,
+          scopeStatus: "active",
+          mode: "full_catalog"
         })
     );
   }

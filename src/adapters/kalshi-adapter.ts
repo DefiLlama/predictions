@@ -102,8 +102,14 @@ export interface KalshiListState {
   nextCursor: string | null;
   pagesFetched: number;
   completed: boolean;
-  stopReason: "exhausted" | "page_cap";
+  stopReason: "exhausted" | "request_budget" | "time_budget";
   partialReason: string | null;
+}
+
+export interface KalshiMetadataOptions {
+  cursorStart?: string | null;
+  maxRequests?: number;
+  runBudgetMs?: number;
 }
 
 export interface KalshiPagedResult<T> {
@@ -195,38 +201,36 @@ function normalizeStatus(status: string | null): "active" | "closed" | "archived
   return "unknown";
 }
 
-async function fetchKalshiCursorPages<T>(
-  path: string,
-  listKey: string,
-  options?: {
-    query?: Record<string, string>;
-    pageLimit?: number;
-    maxPages?: number;
-  }
-): Promise<T[]> {
-  const result = await fetchKalshiCursorPagesWithState<T>(path, listKey, options);
-  return result.items;
-}
-
 async function fetchKalshiCursorPagesWithState<T>(
   path: string,
   listKey: string,
   options?: {
     query?: Record<string, string>;
     pageLimit?: number;
-    maxPages?: number;
+    cursorStart?: string | null;
+    maxRequests?: number;
+    runBudgetMs?: number;
   }
 ): Promise<KalshiPagedResult<T>> {
   const all: T[] = [];
-  let cursor: string | null = null;
-  const maxPages = options?.maxPages ?? env.KALSHI_MAX_PAGES;
+  let cursor: string | null = options?.cursorStart ?? null;
+  const maxRequests = options?.maxRequests ?? env.KALSHI_METADATA_MAX_REQUESTS_PER_RUN;
+  const runBudgetMs = options?.runBudgetMs ?? env.KALSHI_METADATA_RUN_BUDGET_MS;
+  const startedAt = Date.now();
   const pageLimit = options?.pageLimit ?? 200;
   let pagesFetched = 0;
   let completed = false;
-  let stopReason: KalshiListState["stopReason"] = "page_cap";
+  let stopReason: KalshiListState["stopReason"] = "request_budget";
   let partialReason: string | null = null;
 
-  for (let page = 1; page <= maxPages; page += 1) {
+  for (let request = 1; request <= maxRequests; request += 1) {
+    if (pagesFetched > 0 && Date.now() - startedAt >= runBudgetMs) {
+      stopReason = "time_budget";
+      partialReason = `Reached run budget (${runBudgetMs}ms) for ${path}`;
+      logger.warn({ path, runBudgetMs }, "Stopped Kalshi pagination due run budget");
+      break;
+    }
+
     const url = buildKalshiUrl(path);
     url.searchParams.set("limit", String(pageLimit));
 
@@ -263,10 +267,10 @@ async function fetchKalshiCursorPagesWithState<T>(
     cursor = nextCursor;
   }
 
-  if (!completed && pagesFetched >= maxPages) {
-    stopReason = "page_cap";
-    partialReason = `Reached page cap (${maxPages}) for ${path}`;
-    logger.warn({ path, maxPages }, "Stopped Kalshi pagination due to configured page cap");
+  if (!completed && partialReason === null && pagesFetched >= maxRequests) {
+    stopReason = "request_budget";
+    partialReason = `Reached request budget (${maxRequests}) for ${path}`;
+    logger.warn({ path, maxRequests }, "Stopped Kalshi pagination due request budget");
   }
 
   return {
@@ -294,13 +298,15 @@ export class KalshiAdapter implements ProviderAdapter {
     return (await this.listEventsWithState()).items;
   }
 
-  async listEventsWithState(): Promise<KalshiPagedResult<NormalizedEvent>> {
+  async listEventsWithState(options?: KalshiMetadataOptions): Promise<KalshiPagedResult<NormalizedEvent>> {
     const eventsResult = await fetchKalshiCursorPagesWithState<KalshiEventRaw>("events", "events", {
       query: {
         status: "open"
       },
       pageLimit: 200,
-      maxPages: env.KALSHI_MAX_PAGES
+      cursorStart: options?.cursorStart,
+      maxRequests: options?.maxRequests ?? env.KALSHI_METADATA_MAX_REQUESTS_PER_RUN,
+      runBudgetMs: options?.runBudgetMs ?? env.KALSHI_METADATA_RUN_BUDGET_MS
     });
 
     const normalized: Array<NormalizedEvent | null> = eventsResult.items.map((raw) => {
@@ -330,14 +336,16 @@ export class KalshiAdapter implements ProviderAdapter {
     return (await this.listMarketsWithState()).items;
   }
 
-  async listMarketsWithState(): Promise<KalshiPagedResult<NormalizedMarket>> {
+  async listMarketsWithState(options?: KalshiMetadataOptions): Promise<KalshiPagedResult<NormalizedMarket>> {
     const marketsResult = await fetchKalshiCursorPagesWithState<KalshiMarketRaw>("markets", "markets", {
       query: {
         status: "open",
         mve_filter: "exclude"
       },
       pageLimit: 1000,
-      maxPages: env.KALSHI_MAX_PAGES
+      cursorStart: options?.cursorStart,
+      maxRequests: options?.maxRequests ?? env.KALSHI_METADATA_MAX_REQUESTS_PER_RUN,
+      runBudgetMs: options?.runBudgetMs ?? env.KALSHI_METADATA_RUN_BUDGET_MS
     });
 
     const items = marketsResult.items
@@ -367,10 +375,12 @@ export class KalshiAdapter implements ProviderAdapter {
     };
   }
 
-  async listMultivariateEventsWithState(): Promise<KalshiPagedResult<NormalizedEvent>> {
+  async listMultivariateEventsWithState(options?: KalshiMetadataOptions): Promise<KalshiPagedResult<NormalizedEvent>> {
     const eventsResult = await fetchKalshiCursorPagesWithState<KalshiEventRaw>("events/multivariate", "events", {
       pageLimit: 200,
-      maxPages: env.KALSHI_MULTIVARIATE_MAX_PAGES
+      cursorStart: options?.cursorStart,
+      maxRequests: options?.maxRequests ?? env.KALSHI_MULTIVARIATE_MAX_REQUESTS_PER_RUN,
+      runBudgetMs: options?.runBudgetMs ?? env.KALSHI_MULTIVARIATE_RUN_BUDGET_MS
     });
 
     const normalized: Array<NormalizedEvent | null> = eventsResult.items.map((raw) => {
@@ -398,7 +408,10 @@ export class KalshiAdapter implements ProviderAdapter {
 
   async listEventsByTickers(eventTickers: string[]): Promise<NormalizedEvent[]> {
     const uniqueTickers = Array.from(new Set(eventTickers.map((ticker) => ticker.trim()).filter((ticker) => ticker.length > 0)));
-    const rows: Array<NormalizedEvent | null> = await mapWithConcurrency(uniqueTickers, 4, async (eventTicker) => {
+    const rows: Array<NormalizedEvent | null> = await mapWithConcurrency(
+      uniqueTickers,
+      env.KALSHI_EVENT_LOOKUP_CONCURRENCY,
+      async (eventTicker) => {
       const url = buildKalshiUrl(`events/${encodeURIComponent(eventTicker)}`);
       try {
         const body = await fetchJsonWithRetry<Record<string, unknown>>(url.toString(), undefined, {
@@ -424,7 +437,8 @@ export class KalshiAdapter implements ProviderAdapter {
         logger.debug({ eventTicker, error }, "Failed to fetch Kalshi event by ticker");
         return null;
       }
-    });
+      }
+    );
 
     return rows.filter((item): item is NormalizedEvent => item !== null);
   }
@@ -470,78 +484,91 @@ export class KalshiAdapter implements ProviderAdapter {
     const bucketsPerMarket = Math.max(1, Math.ceil((window.endTs - window.startTs) / (periodIntervalMinutes * 60)));
     const marketsPerRequest = Math.max(1, Math.min(100, Math.floor(maxCandlesticksPerResponse / bucketsPerMarket)));
 
-    for (const chunk of chunkArray(marketRefs, marketsPerRequest)) {
-      const url = buildKalshiUrl("markets/candlesticks");
-      url.searchParams.set("market_tickers", chunk.join(","));
-      url.searchParams.set("start_ts", String(window.startTs));
-      url.searchParams.set("end_ts", String(window.endTs));
-      url.searchParams.set("period_interval", String(periodIntervalMinutes));
+    const marketChunks = chunkArray(marketRefs, marketsPerRequest);
+    const chunkPoints = await mapWithConcurrency(
+      marketChunks,
+      env.KALSHI_PRICE_BATCH_CONCURRENCY,
+      async (chunk): Promise<NormalizedPricePoint[]> => {
+        const url = buildKalshiUrl("markets/candlesticks");
+        url.searchParams.set("market_tickers", chunk.join(","));
+        url.searchParams.set("start_ts", String(window.startTs));
+        url.searchParams.set("end_ts", String(window.endTs));
+        url.searchParams.set("period_interval", String(periodIntervalMinutes));
 
-      let body: KalshiBatchCandlesticksResponse;
-      try {
-        body = await fetchJsonWithRetry<KalshiBatchCandlesticksResponse>(url.toString(), undefined, {
-          maxAttempts: 3,
-          baseDelayMs: 250,
-          logRetries: false
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        logger.warn({ markets: chunk.length, error: message }, "Failed to fetch Kalshi candlesticks batch");
-        continue;
-      }
-
-      if (body.error) {
-        logger.warn(
-          {
-            markets: chunk.length,
-            errorCode: asString(body.error.code),
-            errorMessage: asString(body.error.message),
-            errorDetails: asString(body.error.details)
-          },
-          "Kalshi candlesticks API returned error payload"
-        );
-        continue;
-      }
-
-      for (const marketData of body.markets ?? []) {
-        const marketTicker = this.normalizeMarketRef(asString(marketData.market_ticker) ?? "");
-        if (!marketTicker) {
-          continue;
+        let body: KalshiBatchCandlesticksResponse;
+        try {
+          body = await fetchJsonWithRetry<KalshiBatchCandlesticksResponse>(url.toString(), undefined, {
+            maxAttempts: 3,
+            baseDelayMs: 250,
+            logRetries: false
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          logger.warn({ markets: chunk.length, error: message }, "Failed to fetch Kalshi candlesticks batch");
+          return [];
         }
 
-        const yesRef = `${marketTicker}:YES`;
-        const noRef = `${marketTicker}:NO`;
+        if (body.error) {
+          logger.warn(
+            {
+              markets: chunk.length,
+              errorCode: asString(body.error.code),
+              errorMessage: asString(body.error.message),
+              errorDetails: asString(body.error.details)
+            },
+            "Kalshi candlesticks API returned error payload"
+          );
+          return [];
+        }
 
-        for (const candle of marketData.candlesticks ?? []) {
-          const endTs = asNumber(candle.end_period_ts);
-          if (endTs === null) {
+        const chunkResult: NormalizedPricePoint[] = [];
+
+        for (const marketData of body.markets ?? []) {
+          const marketTicker = this.normalizeMarketRef(asString(marketData.market_ticker) ?? "");
+          if (!marketTicker) {
             continue;
           }
 
-          const yesPrice = normalizeKalshiPrice(candle.price?.close ?? candle.price?.close_dollars);
-          if (yesPrice === null) {
-            continue;
-          }
+          const yesRef = `${marketTicker}:YES`;
+          const noRef = `${marketTicker}:NO`;
 
-          if (wantedInstrumentRefs.has(yesRef)) {
-            points.push({
-              instrumentRef: yesRef,
-              ts: parseEpochToDate(endTs),
-              price: yesPrice,
-              source: "kalshi:markets-candlesticks"
-            });
-          }
+          for (const candle of marketData.candlesticks ?? []) {
+            const endTs = asNumber(candle.end_period_ts);
+            if (endTs === null) {
+              continue;
+            }
 
-          if (wantedInstrumentRefs.has(noRef)) {
-            points.push({
-              instrumentRef: noRef,
-              ts: parseEpochToDate(endTs),
-              price: Math.max(0, Math.min(1, 1 - yesPrice)),
-              source: "kalshi:markets-candlesticks"
-            });
+            const yesPrice = normalizeKalshiPrice(candle.price?.close ?? candle.price?.close_dollars);
+            if (yesPrice === null) {
+              continue;
+            }
+
+            if (wantedInstrumentRefs.has(yesRef)) {
+              chunkResult.push({
+                instrumentRef: yesRef,
+                ts: parseEpochToDate(endTs),
+                price: yesPrice,
+                source: "kalshi:markets-candlesticks"
+              });
+            }
+
+            if (wantedInstrumentRefs.has(noRef)) {
+              chunkResult.push({
+                instrumentRef: noRef,
+                ts: parseEpochToDate(endTs),
+                price: Math.max(0, Math.min(1, 1 - yesPrice)),
+                source: "kalshi:markets-candlesticks"
+              });
+            }
           }
         }
+
+        return chunkResult;
       }
+    );
+
+    for (const rows of chunkPoints) {
+      points.push(...rows);
     }
 
     return points;
@@ -550,7 +577,7 @@ export class KalshiAdapter implements ProviderAdapter {
   async listOrderbookTop(instruments: AdapterInstrumentInput[]): Promise<NormalizedOrderbookTop[]> {
     const marketRefs = Array.from(new Set(instruments.map((item) => item.marketRef)));
 
-    const snapshotsByMarket = await mapWithConcurrency(marketRefs, 5, async (marketRef) => {
+    const snapshotsByMarket = await mapWithConcurrency(marketRefs, env.KALSHI_ORDERBOOK_CONCURRENCY, async (marketRef) => {
       const url = buildKalshiUrl(`markets/${encodeURIComponent(marketRef)}/orderbook`);
       url.searchParams.set("depth", "5");
 
@@ -646,11 +673,20 @@ export class KalshiAdapter implements ProviderAdapter {
 
   async listTrades(markets: AdapterMarketInput[], window: PriceWindow): Promise<NormalizedTradeEvent[]> {
     const points: NormalizedTradeEvent[] = [];
+    const runBudgetMs = env.KALSHI_TRADES_RUN_BUDGET_MS;
+    const maxRequests = env.KALSHI_TRADES_MAX_REQUESTS_PER_RUN;
 
-    await mapWithConcurrency(markets, 4, async (marketInput) => {
+    await mapWithConcurrency(markets, env.KALSHI_TRADES_MARKET_CONCURRENCY, async (marketInput) => {
       let cursor: string | null = null;
+      let requestsUsed = 0;
+      const startedAt = Date.now();
 
-      for (let page = 0; page < env.KALSHI_TRADES_MAX_PAGES; page += 1) {
+      for (let page = 0; page < maxRequests; page += 1) {
+        if (requestsUsed > 0 && Date.now() - startedAt >= runBudgetMs) {
+          logger.warn({ marketRef: marketInput.marketRef, runBudgetMs }, "Stopped Kalshi trades pagination due run budget");
+          break;
+        }
+
         const url = buildKalshiUrl("markets/trades");
         url.searchParams.set("ticker", marketInput.marketRef);
         url.searchParams.set("min_ts", String(window.startTs));
@@ -667,6 +703,7 @@ export class KalshiAdapter implements ProviderAdapter {
             baseDelayMs: 250,
             logRetries: false
           });
+          requestsUsed += 1;
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           logger.warn({ marketRef: marketInput.marketRef, page, error: message }, "Failed to fetch Kalshi trades page");
@@ -725,7 +762,7 @@ export class KalshiAdapter implements ProviderAdapter {
   async listOpenInterest(markets: AdapterMarketInput[], _window: PriceWindow): Promise<NormalizedOpenInterestPoint[]> {
     const points: NormalizedOpenInterestPoint[] = [];
 
-    await mapWithConcurrency(markets, 6, async (marketInput) => {
+    await mapWithConcurrency(markets, env.KALSHI_OI_MARKET_CONCURRENCY, async (marketInput) => {
       const url = buildKalshiUrl(`markets/${encodeURIComponent(marketInput.marketRef)}`);
 
       let body: KalshiMarketResponse;

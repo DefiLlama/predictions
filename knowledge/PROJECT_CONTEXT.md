@@ -13,7 +13,7 @@ The system is a provider-agnostic prediction market ingestion service.
 Core flow:
 1. Provider adapters fetch and normalize external data.
 2. Ingestion services upsert normalized data into Postgres (`core`, `raw`, `agg`, `ops`).
-3. pg-boss workers execute jobs manually (CLI) or by scheduler cadence.
+3. Cron commands execute explicit ingestion pipelines (`topN_live`, `full_catalog`) with DB advisory lock overlap guards.
 4. Query services read from canonical tables and expose API payloads through Fastify.
 
 Architectural principle:
@@ -33,7 +33,7 @@ flowchart LR
   E --> H["agg schema"]
   E --> I["ops schema"]
 
-  J["pg-boss workers"] --> E
+  J["Cron pipelines"] --> E
   K["Query Service"] --> F
   K --> G
   K --> H
@@ -47,20 +47,21 @@ flowchart LR
 3. API framework: Fastify.
 4. DB access: Drizzle ORM + SQL.
 5. Database: PostgreSQL.
-6. Job orchestration: pg-boss.
+6. Job orchestration: cron-driven CLI pipelines + advisory locks.
 7. Logging: pino.
 8. Timestamp policy: UTC in storage and API payloads.
 9. Probability scale: canonical `0..1`.
 
 ## 4. Repository Map
 Primary module map:
-1. `src/app`: Fastify boot, health/meta/market routes, worker lifecycle binding.
+1. `src/app`: Fastify boot, health/meta/market routes.
 2. `src/adapters`: Provider contract + `polymarket` and `kalshi` implementations.
 3. `src/services`: Ingestion orchestration, scope, rollups, query/read layer, checkpoints.
-4. `src/jobs`: Job names, handlers, scheduler, queue registration.
-5. `src/db`: Drizzle schema, migration runner, DB setup/seed.
-6. `src/cli`: Manual ingestion and verification commands.
-7. `knowledge`: Supporting documentation and API notes.
+4. `src/cron`: Top-level cron pipelines (`topN_live`, `full_catalog`).
+5. `src/jobs`: Job-name constants and handler compatibility layer for direct execution.
+6. `src/db`: Drizzle schema, migration runner, DB setup/seed.
+7. `src/cli`: Manual ingestion and verification commands.
+8. `knowledge`: Supporting documentation and API notes.
 
 ## 5. Canonical Domain Model
 Canonical entities:
@@ -142,7 +143,7 @@ Key constraints:
 - fields: rows upserted/skipped, error text, timestamps
 
 Operational note:
-1. pg-boss internal tables also live in `ops` (`job`, `queue`, `schedule`, etc.).
+1. `ops.job_run_log` and `ops.ingest_checkpoint` remain the canonical operational observability/state tables.
 
 ## 7. Provider Adapters
 Adapter contract (from `src/adapters/types.ts`):
@@ -163,9 +164,9 @@ Sources:
 3. Data API: trades and open interest (`/trades`, `/oi`).
 
 Fetch mechanics:
-1. Metadata incremental uses active filters and page cap (`POLYMARKET_MAX_PAGES`).
-2. Metadata full backfill uses checkpointed offsets and per-run cap (`POLYMARKET_BACKFILL_MAX_PAGES_PER_RUN`).
-3. Trades fetch uses `filterType=CASH` + `filterAmount` threshold and offset pagination (`POLYMARKET_TRADES_MAX_PAGES`).
+1. Metadata uses offset pagination with run budgets (`POLYMARKET_METADATA_RUN_BUDGET_MS`, `POLYMARKET_METADATA_MAX_REQUESTS_PER_RUN`).
+2. Full-catalog/backfill discovery is checkpointed and resumable across runs (`ops.ingest_checkpoint` cursors).
+3. Trades fetch uses `filterType=CASH` + `filterAmount` threshold with request/time budgets (`POLYMARKET_TRADES_MAX_REQUESTS_PER_RUN`, `POLYMARKET_TRADES_RUN_BUDGET_MS`).
 
 Normalization:
 1. Market refs are lowercased condition IDs.
@@ -179,7 +180,7 @@ Source:
 Fetch mechanics:
 1. Discovery uses cursor paging (`next_cursor`/`cursor`) with `mve_filter=exclude`.
 2. Candlesticks use batch endpoint and 10k-candle response cap aware chunking.
-3. Trades use `/markets/trades` cursor pagination (`KALSHI_TRADES_MAX_PAGES`).
+3. Trades use `/markets/trades` cursor pagination with request/time budgets (`KALSHI_TRADES_MAX_REQUESTS_PER_RUN`, `KALSHI_TRADES_RUN_BUDGET_MS`).
 4. OI points use `/markets/{ticker}` snapshot fields (`open_interest` / `open_interest_fp`).
 
 Normalization:
@@ -217,6 +218,8 @@ flowchart TD
 
 Implemented job names:
 1. Shared:
+- `cron:topn-live`
+- `cron:full-catalog`
 - `scope:rebuild`
 - `analytics:category:assign:markets`
 - `analytics:rollup:price:1h`
@@ -226,15 +229,23 @@ Implemented job names:
 - `polymarket:sync:metadata`
 - `polymarket:sync:metadata:backfill_full`
 - `polymarket:sync:prices`
+- `polymarket:sync:prices:full_catalog`
 - `polymarket:sync:orderbook`
+- `polymarket:sync:orderbook:full_catalog`
 - `polymarket:sync:trades`
+- `polymarket:sync:trades:full_catalog`
 - `polymarket:sync:oi`
+- `polymarket:sync:oi:full_catalog`
 3. Kalshi:
 - `kalshi:sync:metadata`
 - `kalshi:sync:prices`
+- `kalshi:sync:prices:full_catalog`
 - `kalshi:sync:orderbook`
+- `kalshi:sync:orderbook:full_catalog`
 - `kalshi:sync:trades`
+- `kalshi:sync:trades:full_catalog`
 - `kalshi:sync:oi`
+- `kalshi:sync:oi:full_catalog`
 
 Job write targets:
 1. `polymarket:sync:metadata` -> `core.event`, `core.market`, `core.instrument`, checkpoint update in `ops.ingest_checkpoint`.
@@ -252,17 +263,25 @@ Job write targets:
 
 ## 9. Scheduling, Cadence, and Checkpoints
 Cadence:
-1. Active loop (`ACTIVE_POLL_INTERVAL_MS`, default 5m):
-- prices, orderbook, trades, oi for both providers
-2. Closed loop (`CLOSED_POLL_INTERVAL_MS`, default 30m):
-- prices, orderbook, trades, oi, metadata, scope rebuild, category assignment, and rollups for both providers
+1. `cron:topn-live` (recommended every 5 minutes):
+- mode: `topN_live`
+- scope source: `core.market_scope`
+- steps per provider: prices, orderbook, trades, oi (`scopeStatus=active`)
+2. `cron:full-catalog` (recommended every 4 hours):
+- mode: `full_catalog`
+- scope source: active markets from `core.market`/`core.instrument` with cursorized batch selection
+- steps per provider: metadata, market-event relink, scope rebuild, full-catalog prices/orderbook/trades/oi, category assignment, provider-category rollup, hourly price/liquidity rollups
+3. Overlap policy:
+- each cron command acquires a DB advisory lock
+- if lock is held, run is skipped and logged (`skipped_lock_held`)
 
 Checkpoint strategy:
 1. Checkpoints stored in `ops.ingest_checkpoint` keyed by provider + job.
 2. Logical checkpoint key format: `${provider_code}:${job_name}` (stored as columns `provider_code`, `job_name` with a uniqueness constraint).
 3. Cursor format is job-specific JSON.
-4. Polymarket full metadata backfill uses dedicated cursor state with completion flags.
-5. Successful and partial-success runs advance/checkpoint state; failures log but do not corrupt prior cursor state.
+4. `full_catalog` selectors persist market cursor state (`nextMarketCursorId`, cycle metadata) per sync step.
+5. Incremental windows (prices/trades/oi) are mode-aware and scope-aware (`topN_live` vs `full_catalog`).
+6. Successful and partial-success runs advance/checkpoint state; failures log but do not corrupt prior cursor state.
 
 ## 10. API Surface (Current)
 Implemented endpoints:
@@ -329,6 +348,10 @@ Kalshi:
 ### Dual-provider ingest
 1. `npm run ingest:all`
 
+### Cron pipelines
+1. `npm run cron:topn-live`
+2. `npm run cron:full-catalog`
+
 ### Rollups
 1. `npm run ingest:categories`
 2. `npm run ingest:categories:backfill`
@@ -347,11 +370,11 @@ Kalshi:
 2. Empty or sparse series:
 - verify market activity scope and provider endpoint behavior before treating as bug.
 3. Metadata truncation:
-- check page caps and backfill checkpoints.
+- check run-budget/request-budget settings and checkpoint cursors.
 4. Endpoint shape drift:
 - inspect `raw_json` payloads and adapter parsing assumptions.
-5. Scheduler disabled unexpectedly:
-- verify `ENABLE_SCHEDULER` in runtime env.
+5. Cron overlap skips:
+- verify advisory lock keys and long-running previous executions (`skipped_lock_held` in logs).
 
 ## 13. Known Limitations and Deferred Work
 Deferred by design:
@@ -361,7 +384,7 @@ Deferred by design:
 4. Full UI-layer contracts for market overview/single poll active feed beyond current APIs.
 
 Current implementation caveats:
-1. Metadata and scope currently prioritize active polling workflows.
+1. `topN_live` and `full_catalog` serve different latency/coverage goals; monitor both freshness and full-universe coverage.
 2. Provider-specific endpoint quirks are tracked in `knowledge/api.md`.
 3. Matching strategy target remains deterministic candidate generation with optional AI rerank in a future iteration.
 
@@ -374,6 +397,7 @@ Recommendation:
 
 | Date (UTC) | Change | Files Touched |
 |---|---|---|
+| 2026-03-02 | Replaced pg-boss orchestration with cron pipelines (`topN_live`, `full_catalog`), added advisory lock skip policy, and introduced full-catalog ingestion mode. | `src/cli/main.ts`, `src/cron/pipelines.ts`, `src/services/cron-lock-service.ts`, `src/services/ingestion-service.ts`, `src/config/env.ts`, `README.md`, `knowledge/PROJECT_CONTEXT.md` |
 | 2026-03-01 | Initial canonical context file created. | `knowledge/PROJECT_CONTEXT.md` |
 | 2026-03-01 | Added category assignment and provider-category treemap rollup context. | `src/services/category-service.ts`, `src/jobs/*`, `src/app/server.ts`, `src/services/query-service.ts`, `src/db/schema.ts`, `src/migrations/0003_black_havok.sql`, `knowledge/PROJECT_CONTEXT.md` |
 | 2026-03-01 | Added Phase B two-layer taxonomy (canonical sectors + provider categories), scoped/all classification modes, category quality endpoint, treemap `groupBy`, and backfill checkpoints. | `src/services/category-taxonomy.ts`, `src/services/category-service.ts`, `src/services/query-service.ts`, `src/app/server.ts`, `src/cli/main.ts`, `src/db/schema.ts`, `src/migrations/0004_vengeful_jimmy_woo.sql`, `knowledge/PROJECT_CONTEXT.md` |
@@ -387,7 +411,8 @@ npm run db:prepare
 
 # Run service
 npm run start
-npm run worker
+npm run cron:topn-live
+npm run cron:full-catalog
 
 # Polymarket ingest
 npm run ingest:metadata

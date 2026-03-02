@@ -1,4 +1,12 @@
 import { logger } from "./logger.js";
+import {
+  recordHttpAttempt,
+  recordHttpRequestFailed,
+  recordHttpRequestStarted,
+  recordHttpRequestSucceeded,
+  recordHttpRetry,
+  recordRateLimitedResponse
+} from "./http-metrics.js";
 
 const RETRYABLE_STATUS = new Set([408, 429, 500, 502, 503, 504]);
 const rateLimitCooldownByOrigin = new Map<string, number>();
@@ -127,6 +135,8 @@ export async function fetchJsonWithRetry<T>(
     logRetries?: boolean;
   }
 ): Promise<T> {
+  recordHttpRequestStarted();
+
   const maxAttempts = options?.maxAttempts ?? 5;
   const baseDelayMs = options?.baseDelayMs ?? 500;
   const maxDelayMs = options?.maxDelayMs ?? 15_000;
@@ -136,6 +146,7 @@ export async function fetchJsonWithRetry<T>(
 
   for (let attempt = 1; attempt <= maxTotalAttempts; attempt += 1) {
     await waitForRateLimitCooldown(url, options?.signal);
+    recordHttpAttempt();
 
     let response: Response;
     try {
@@ -149,6 +160,7 @@ export async function fetchJsonWithRetry<T>(
       });
     } catch (error) {
       if (attempt >= maxAttempts) {
+        recordHttpRequestFailed();
         throw error;
       }
 
@@ -162,11 +174,13 @@ export async function fetchJsonWithRetry<T>(
       if (logRetries) {
         logger.warn({ url, attempt, delay, error }, "Request failed, retrying");
       }
+      recordHttpRetry();
       await sleep(delay, options?.signal);
       continue;
     }
 
     if (response.ok) {
+      recordHttpRequestSucceeded();
       return (await response.json()) as T;
     }
 
@@ -185,6 +199,7 @@ export async function fetchJsonWithRetry<T>(
       });
 
       if (response.status === 429) {
+        recordRateLimitedResponse();
         setRateLimitCooldown(url, delay);
       }
 
@@ -203,12 +218,15 @@ export async function fetchJsonWithRetry<T>(
         );
       }
 
+      recordHttpRetry();
       await sleep(delay, options?.signal);
       continue;
     }
 
+    recordHttpRequestFailed();
     throw new Error(`HTTP ${response.status} for ${url}: ${body.slice(0, 500)}`);
   }
 
+  recordHttpRequestFailed();
   throw new Error(`Unexpected request loop exit for ${url}`);
 }

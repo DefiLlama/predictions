@@ -3,7 +3,6 @@ import { sql } from "drizzle-orm";
 
 import { env } from "../config/env.js";
 import { db, closeDb } from "../db/client.js";
-import { startWorkerRuntime, type WorkerRuntime } from "../jobs/boss.js";
 import {
   getCoverageMeta,
   getCategoryQualityMeta,
@@ -23,10 +22,7 @@ function isProviderCode(value: string | undefined): value is ProviderCode {
   return value === "polymarket" || value === "kalshi";
 }
 
-export async function createServer(): Promise<{
-  app: ReturnType<typeof Fastify>;
-  workerRuntime: WorkerRuntime;
-}> {
+export async function createServer(): Promise<ReturnType<typeof Fastify>> {
   const app = Fastify({ logger: false });
 
   app.get("/healthz", async () => ({ status: "ok", timestamp: new Date().toISOString() }));
@@ -216,20 +212,14 @@ export async function createServer(): Promise<{
     };
   });
 
-  const workerRuntime = await startWorkerRuntime({ enableScheduler: env.ENABLE_SCHEDULER });
-
-  return {
-    app,
-    workerRuntime
-  };
+  return app;
 }
 
 export async function startServer(): Promise<void> {
-  const { app, workerRuntime } = await createServer();
+  const app = await createServer();
 
   const onShutdown = async () => {
     logger.info("Shutting down server");
-    await workerRuntime.stop();
     await app.close();
     await closeDb();
     process.exit(0);
@@ -248,5 +238,5 @@ export async function startServer(): Promise<void> {
     port: env.PORT
   });
 
-  logger.info({ port: env.PORT, scheduler: env.ENABLE_SCHEDULER }, "Prediction markets service started");
+  logger.info({ port: env.PORT }, "Prediction markets API started");
 }

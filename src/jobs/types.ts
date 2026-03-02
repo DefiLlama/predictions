@@ -12,6 +12,7 @@ export interface ScopeRebuildPayload extends BaseJobPayload {
 export interface IngestPayload extends BaseJobPayload {
   providerCode?: ProviderCode;
   scopeStatus?: "active" | "closed" | "all";
+  mode?: "topN_live" | "full_catalog";
 }
 
 export interface AnalyticsRollupPayload extends BaseJobPayload {
@@ -34,4 +35,4 @@ export type JobPayload = ScopeRebuildPayload | IngestPayload | AnalyticsRollupPa
 
 export type JobHandler = (payload: JobPayload) => Promise<void>;
 
-export type JobHandlerMap = Record<JobName, JobHandler>;
+export type JobHandlerMap = Partial<Record<JobName, JobHandler>>;

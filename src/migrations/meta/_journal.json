@@ -36,6 +36,13 @@
       "when": 1772360793724,
       "tag": "0004_vengeful_jimmy_woo",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1772470000000,
+      "tag": "0005_steady_rename_price_point",
+      "breakpoints": true
     }
   ]
 }

@@ -8,7 +8,7 @@ Provider-agnostic backend scaffold with Polymarket and Kalshi ingestion adapters
 - npm package manager
 - TypeScript + Fastify
 - PostgreSQL + Drizzle ORM/migrations
-- pg-boss job orchestration
+- Cron-driven ingestion pipelines
 
 ## Local Setup
 
@@ -32,19 +32,27 @@ npm run db:prepare
 
 ## Run Commands
 
-Start API server (also starts workers; scheduler off by default):
+Start API server (API only):
 
 ```bash
 npm run start
 ```
 
-Start dedicated worker with scheduler enabled:
+Cron pipelines:
 
 ```bash
-npm run worker
+npm run cron:topn-live
+npm run cron:full-catalog
 ```
 
-Polymarket ingestion:
+Recommended Coolify cron entries:
+
+```cron
+*/5 * * * * npm run cron:topn-live
+0 */4 * * * npm run cron:full-catalog
+```
+
+Manual ingestion (direct execution, no queue):
 
 ```bash
 npm run ingest:metadata
@@ -53,29 +61,16 @@ npm run ingest:prices
 npm run ingest:orderbook
 npm run ingest:trades
 npm run ingest:oi
-```
 
-Kalshi ingestion:
-
-```bash
 npm run ingest:kalshi:metadata
 npm run ingest:kalshi:prices
 npm run ingest:kalshi:orderbook
 npm run ingest:kalshi:trades
 npm run ingest:kalshi:oi
+
 npm run ingest:categories
 npm run ingest:categories:backfill
-```
-
-Hourly rollups (price + liquidity, both providers):
-
-```bash
 npm run ingest:rollups
-```
-
-Combined run:
-
-```bash
 npm run ingest:all
 ```
 
@@ -91,6 +86,11 @@ Tests:
 ```bash
 npm test
 ```
+
+## Ingestion Modes
+
+- `topN_live`: `core.market_scope`-based prioritized ingestion, designed for 5-minute cadence.
+- `full_catalog`: active-market full-universe ingestion using batched selectors from `core.market`/`core.instrument`, designed for low-frequency cadence.
 
 ## API Endpoints
 
@@ -110,4 +110,5 @@ npm test
 
 - Public market IDs are `provider:marketRef`.
 - Canonical probability scale in storage is `0..1`.
-- Incremental metadata is bounded (`POLYMARKET_MAX_PAGES`), full Polymarket metadata backfill is resumable (`POLYMARKET_BACKFILL_MAX_PAGES_PER_RUN`).
+- `ops.job_run_log` is the canonical run history (step-level + cron skip outcomes).
+- `ops.ingest_checkpoint` stores incremental windows and full-catalog cursor state.

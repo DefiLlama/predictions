@@ -23,7 +23,7 @@ export async function refreshMarketPrice1hRollup(providerCode: ProviderCode, opt
         date_trunc('hour', pp.ts) as bucket_ts,
         pp.ts,
         pp.price
-      from raw.price_point_5m pp
+      from raw.price_point pp
       join core.instrument i on i.id = pp.instrument_id
       join core.platform p on p.id = i.platform_id
       where p.code = ${providerCode}

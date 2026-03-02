@@ -219,8 +219,8 @@ export const providerCategoryMap = core.table(
   ]
 );
 
-export const pricePoint5m = raw.table(
-  "price_point_5m",
+export const pricePoint = raw.table(
+  "price_point",
   {
     id: bigint("id", { mode: "number" }).generatedAlwaysAsIdentity().primaryKey(),
     instrumentId: bigint("instrument_id", { mode: "number" })
@@ -232,10 +232,13 @@ export const pricePoint5m = raw.table(
     createdAt: createdAtColumn()
   },
   (table) => [
-    uniqueIndex("price_point_5m_instrument_ts_uq").on(table.instrumentId, table.ts),
-    index("price_point_5m_ts_idx").on(table.ts)
+    uniqueIndex("price_point_instrument_ts_uq").on(table.instrumentId, table.ts),
+    index("price_point_ts_idx").on(table.ts)
   ]
 );
+
+// Backward-compatible alias while callers are migrated.
+export const pricePoint5m = pricePoint;
 
 export const orderbookTop = raw.table(
   "orderbook_top",

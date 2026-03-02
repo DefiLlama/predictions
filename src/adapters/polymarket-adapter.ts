@@ -65,7 +65,8 @@ interface OrderbookResponse {
 
 interface ListGammaEntitiesOptions {
   offsetStart?: number;
-  maxPages: number;
+  maxRequests?: number;
+  runBudgetMs?: number;
   queryParams?: Record<string, string>;
 }
 
@@ -97,7 +98,7 @@ export interface PolymarketListState {
   nextOffset: number;
   pagesFetched: number;
   completed: boolean;
-  stopReason: "exhausted" | "page_cap" | "repeated_page";
+  stopReason: "exhausted" | "request_budget" | "time_budget" | "repeated_page";
   partialReason: string | null;
 }
 
@@ -109,7 +110,8 @@ export interface PolymarketPagedResult<T> {
 export interface PolymarketMetadataOptions {
   activeOnly?: boolean;
   offsetStart?: number;
-  maxPages?: number;
+  maxRequests?: number;
+  runBudgetMs?: number;
 }
 
 function asString(value: unknown): string | null {
@@ -247,12 +249,22 @@ async function listGammaEntitiesWithState<T extends Record<string, unknown>>(
   const seenFirstIds = new Set<string>();
 
   let nextOffset = options.offsetStart ?? 0;
+  const maxRequests = options.maxRequests ?? env.POLYMARKET_METADATA_MAX_REQUESTS_PER_RUN;
+  const runBudgetMs = options.runBudgetMs ?? env.POLYMARKET_METADATA_RUN_BUDGET_MS;
+  const startedAt = Date.now();
   let pagesFetched = 0;
-  let stopReason: PolymarketListState["stopReason"] = "page_cap";
+  let stopReason: PolymarketListState["stopReason"] = "request_budget";
   let partialReason: string | null = null;
   let completed = false;
 
-  while (pagesFetched < options.maxPages) {
+  while (pagesFetched < maxRequests) {
+    if (pagesFetched > 0 && Date.now() - startedAt >= runBudgetMs) {
+      stopReason = "time_budget";
+      partialReason = `Reached run budget (${runBudgetMs}ms) for ${path}`;
+      logger.warn({ path, runBudgetMs }, "Stopped pagination due to run budget");
+      break;
+    }
+
     const url = new URL(path, baseUrl);
     url.searchParams.set("limit", String(DEFAULT_PAGE_LIMIT));
     url.searchParams.set("offset", String(nextOffset));
@@ -295,10 +307,10 @@ async function listGammaEntitiesWithState<T extends Record<string, unknown>>(
     }
   }
 
-  if (!completed && pagesFetched >= options.maxPages) {
-    stopReason = "page_cap";
-    partialReason = `Reached page cap (${options.maxPages}) for ${path}`;
-    logger.warn({ path, maxPages: options.maxPages }, "Stopped pagination due to configured page cap");
+  if (!completed && partialReason === null && pagesFetched >= maxRequests) {
+    stopReason = "request_budget";
+    partialReason = `Reached request budget (${maxRequests}) for ${path}`;
+    logger.warn({ path, maxRequests }, "Stopped pagination due to request budget");
   }
 
   return {
@@ -320,7 +332,8 @@ export class PolymarketAdapter implements ProviderAdapter {
     const activeOnly = options?.activeOnly ?? true;
     const result = await listGammaEntitiesWithState<GammaEventRaw>(env.POLYMARKET_GAMMA_BASE_URL, "/events", {
       offsetStart: options?.offsetStart ?? 0,
-      maxPages: options?.maxPages ?? env.POLYMARKET_MAX_PAGES,
+      maxRequests: options?.maxRequests ?? env.POLYMARKET_METADATA_MAX_REQUESTS_PER_RUN,
+      runBudgetMs: options?.runBudgetMs ?? env.POLYMARKET_METADATA_RUN_BUDGET_MS,
       queryParams: buildMetadataQueryParams(activeOnly)
     });
 
@@ -353,7 +366,8 @@ export class PolymarketAdapter implements ProviderAdapter {
     const activeOnly = options?.activeOnly ?? true;
     const result = await listGammaEntitiesWithState<GammaMarketRaw>(env.POLYMARKET_GAMMA_BASE_URL, "/markets", {
       offsetStart: options?.offsetStart ?? 0,
-      maxPages: options?.maxPages ?? env.POLYMARKET_MAX_PAGES,
+      maxRequests: options?.maxRequests ?? env.POLYMARKET_METADATA_MAX_REQUESTS_PER_RUN,
+      runBudgetMs: options?.runBudgetMs ?? env.POLYMARKET_METADATA_RUN_BUDGET_MS,
       queryParams: buildMetadataQueryParams(activeOnly)
     });
 
@@ -425,12 +439,12 @@ export class PolymarketAdapter implements ProviderAdapter {
   }
 
   async listPricePoints(instruments: AdapterInstrumentInput[], window: PriceWindow): Promise<NormalizedPricePoint[]> {
-    const responses = await mapWithConcurrency(instruments, 4, async (instrument) => {
+    const responses = await mapWithConcurrency(instruments, env.POLYMARKET_PRICE_CONCURRENCY, async (instrument) => {
       const url = new URL("/prices-history", env.POLYMARKET_CLOB_BASE_URL);
       url.searchParams.set("market", instrument.instrumentRef);
       url.searchParams.set("startTs", String(window.startTs));
       url.searchParams.set("endTs", String(window.endTs));
-      url.searchParams.set("fidelity", "5");
+      url.searchParams.set("fidelity", String(env.POLYMARKET_PRICE_FIDELITY_MINUTES));
 
       try {
         const body = await fetchJsonWithRetry<PriceHistoryResponse>(url.toString(), undefined, {
@@ -469,7 +483,7 @@ export class PolymarketAdapter implements ProviderAdapter {
   }
 
   async listOrderbookTop(instruments: AdapterInstrumentInput[]): Promise<NormalizedOrderbookTop[]> {
-    const snapshots = await mapWithConcurrency(instruments, 4, async (instrument) => {
+    const snapshots = await mapWithConcurrency(instruments, env.POLYMARKET_ORDERBOOK_CONCURRENCY, async (instrument) => {
       const url = new URL("/book", env.POLYMARKET_CLOB_BASE_URL);
       url.searchParams.set("token_id", instrument.instrumentRef);
 
@@ -537,13 +551,22 @@ export class PolymarketAdapter implements ProviderAdapter {
     const pageLimit = 500;
     const maxHistoricalOffset = 3000;
     const maxPagesByOffset = Math.floor(maxHistoricalOffset / pageLimit) + 1;
-    const maxPages = Math.min(env.POLYMARKET_TRADES_MAX_PAGES, maxPagesByOffset);
+    const maxRequests = Math.min(env.POLYMARKET_TRADES_MAX_REQUESTS_PER_RUN, maxPagesByOffset);
+    const runBudgetMs = env.POLYMARKET_TRADES_RUN_BUDGET_MS;
     const points: NormalizedTradeEvent[] = [];
     const startMs = window.startTs * 1000;
     const endMs = window.endTs * 1000;
 
-    await mapWithConcurrency(markets, 2, async (marketInput) => {
-      for (let page = 0; page < maxPages; page += 1) {
+    await mapWithConcurrency(markets, env.POLYMARKET_TRADES_MARKET_CONCURRENCY, async (marketInput) => {
+      const startedAt = Date.now();
+      let requestsUsed = 0;
+
+      for (let page = 0; page < maxRequests; page += 1) {
+        if (requestsUsed > 0 && Date.now() - startedAt >= runBudgetMs) {
+          logger.warn({ marketRef: marketInput.marketRef, runBudgetMs }, "Stopped Polymarket trades pagination due run budget");
+          break;
+        }
+
         const offset = page * pageLimit;
 
         const url = new URL("/trades", env.POLYMARKET_DATA_BASE_URL);
@@ -566,6 +589,7 @@ export class PolymarketAdapter implements ProviderAdapter {
             baseDelayMs: 250,
             logRetries: false
           });
+          requestsUsed += 1;
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           logger.warn({ marketRef: marketInput.marketRef, page, error: message }, "Failed to fetch Polymarket trades page");
@@ -636,7 +660,7 @@ export class PolymarketAdapter implements ProviderAdapter {
   async listOpenInterest(markets: AdapterMarketInput[], _window: PriceWindow): Promise<NormalizedOpenInterestPoint[]> {
     const points: NormalizedOpenInterestPoint[] = [];
 
-    await mapWithConcurrency(markets, 4, async (marketInput) => {
+    await mapWithConcurrency(markets, env.POLYMARKET_OI_MARKET_CONCURRENCY, async (marketInput) => {
       const url = new URL("/oi", env.POLYMARKET_DATA_BASE_URL);
       url.searchParams.set("market", marketInput.marketRef);
 

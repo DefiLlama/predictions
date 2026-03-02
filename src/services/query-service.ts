@@ -76,7 +76,7 @@ export async function getCoverageMeta(): Promise<
     ),
     latest_price as (
       select i.platform_id, max(pp.ts) as latest_price_ts
-      from raw.price_point_5m pp
+      from raw.price_point pp
       join core.instrument i on i.id = pp.instrument_id
       group by i.platform_id
     ),
@@ -275,7 +275,7 @@ export async function getDataFreshness(): Promise<
     from providers p
     left join lateral (
       select max(pp.ts) as latest_raw_price_ts
-      from raw.price_point_5m pp
+      from raw.price_point pp
       join core.instrument i on i.id = pp.instrument_id
       where i.platform_id = p.id
     ) raw_price on true
@@ -607,7 +607,7 @@ export async function getMarketPriceHistory(params: {
         pp.instrument_id as "instrumentId",
         pp.ts as ts,
         pp.price::text as price
-      from raw.price_point_5m pp
+      from raw.price_point pp
       join core.instrument i on i.id = pp.instrument_id
       where i.market_id = ${marketRow.id}
         and pp.ts >= ${from}
@@ -747,7 +747,7 @@ export async function getDashboardMain(): Promise<{
         pp.instrument_id,
         pp.ts,
         pp.price
-      from raw.price_point_5m pp
+      from raw.price_point pp
       join scoped_instruments si on si.instrument_id = pp.instrument_id
       order by pp.instrument_id, pp.ts desc
     ),
@@ -759,7 +759,7 @@ export async function getDashboardMain(): Promise<{
       from latest_price lp
       left join lateral (
         select pp2.price
-        from raw.price_point_5m pp2
+        from raw.price_point pp2
         where pp2.instrument_id = lp.instrument_id
           and pp2.ts <= now() - interval '24 hours'
         order by pp2.ts desc
@@ -979,7 +979,7 @@ export async function getVerifySummary(): Promise<{
     markets_with_recent_price as (
       select distinct i.market_id
       from core.instrument i
-      join raw.price_point_5m pp on pp.instrument_id = i.id
+      join raw.price_point pp on pp.instrument_id = i.id
       where pp.ts >= now() - interval '6 hours'
     ),
     latest_book as (
@@ -1029,7 +1029,7 @@ export async function getVerifySummary(): Promise<{
     ), latest_price as (
       select i.market_id, max(pp.ts) as latest_price_ts
       from core.instrument i
-      left join raw.price_point_5m pp on pp.instrument_id = i.id
+      left join raw.price_point pp on pp.instrument_id = i.id
       group by i.market_id
     ), latest_book as (
       select i.market_id, max(ob.ts) as latest_orderbook_ts
@@ -1075,6 +1075,7 @@ export async function getVerifySummary(): Promise<{
       "core.provider_category_map": providerCategoryMapCount?.value ?? 0,
       "core.market_scope": scopeCount?.value ?? 0,
       "raw.price_point_5m": priceCount?.value ?? 0,
+      "raw.price_point": priceCount?.value ?? 0,
       "raw.orderbook_top": orderbookCount?.value ?? 0,
       "raw.trade_event": tradeCount?.value ?? 0,
       "raw.oi_point_5m": oiCount?.value ?? 0,
