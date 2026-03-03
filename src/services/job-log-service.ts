@@ -15,6 +15,7 @@ export interface JobRunResult {
   rowsUpserted: number;
   rowsSkipped: number;
   partialReason?: string | null;
+  continueSameStep?: boolean;
 }
 
 const JOB_LOG_DB_RETRY_MAX_ATTEMPTS = 2;
@@ -96,15 +97,17 @@ export async function startJobRun(context: JobRunContext): Promise<number> {
 }
 
 export async function finishJobRunSuccess(id: number, result: JobRunResult): Promise<void> {
+  const isPartial = Boolean(result.partialReason) || Boolean(result.continueSameStep);
+
   await runJobLogDbWrite("finishJobRunSuccess", () =>
     db
       .update(jobRunLog)
       .set({
-        status: result.partialReason ? "partial_success" : "success",
+        status: isPartial ? "partial_success" : "success",
         finishedAt: new Date(),
         rowsUpserted: result.rowsUpserted,
         rowsSkipped: result.rowsSkipped,
-        errorText: result.partialReason ?? null
+        errorText: result.partialReason ?? (result.continueSameStep ? "step_in_progress_resume_required" : null)
       })
       .where(eq(jobRunLog.id, id))
   );

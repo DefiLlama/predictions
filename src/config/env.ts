@@ -57,9 +57,11 @@ const envSchema = z.object({
   CRON_LOCK_TIMEOUT_MS: z.coerce.number().int().nonnegative().default(0),
   CRON_STEP_TIMEOUT_MS: z.coerce.number().int().positive().default(20 * 60 * 1000),
   FULL_CATALOG_RESUME_INVOCATION_BUDGET_MS: z.coerce.number().int().positive().default(55 * 60 * 1000),
+  FULL_CATALOG_RESUME_STEP_BUDGET_MS: z.coerce.number().int().positive().default(15 * 60 * 1000),
   FULL_CATALOG_CYCLE_TTL_MS: z.coerce.number().int().positive().default(24 * 60 * 60 * 1000),
   FULL_CATALOG_MAX_STEP_RETRIES: z.coerce.number().int().positive().default(16),
   FULL_CATALOG_MAX_STEPS_PER_INVOCATION: z.coerce.number().int().positive().default(1),
+  FULL_CATALOG_MAX_STEPS_PER_PROVIDER_PER_INVOCATION: z.coerce.number().int().positive().default(1),
   JOB_RUN_STALE_AFTER_MS: z.coerce.number().int().positive().default(60 * 60 * 1000)
 });
 

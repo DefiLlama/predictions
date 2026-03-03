@@ -17,6 +17,7 @@ interface SyncOptions {
   requestId?: string;
   scopeStatus?: "active" | "closed" | "all";
   mode?: "topN_live" | "full_catalog";
+  resumeIntraStep?: boolean;
 }
 
 interface RelinkOptions {
@@ -69,6 +70,30 @@ interface SelectionMarketRow {
   marketId: number;
   marketRef: string;
   marketStatus: string;
+}
+
+interface FullCatalogStepRunState {
+  mode: "full_catalog";
+  scopeStatus: "active" | "closed" | "all";
+  windowStartTs: number;
+  windowEndTs: number;
+  nextMarketCursorId: number;
+  batchesProcessed: number;
+  marketsProcessed: number;
+  instrumentsProcessed: number;
+  rowsFetched: number;
+  rowsUpserted: number;
+  rowsSkipped: number;
+  completed: boolean;
+  startedAt: string;
+  updatedAt: string;
+}
+
+interface PricePointUpsertInput {
+  instrumentId: number;
+  ts: Date;
+  price: string;
+  source: string;
 }
 
 function toNullableNumericString(value: number | null): string | null {
@@ -147,6 +172,53 @@ function parseLastWindowEndTs(cursor: Record<string, unknown> | null): number | 
   }
 
   return parseIsoEpochSeconds(cursor?.lastRunAt);
+}
+
+function truncateDateToHour(ts: Date): Date {
+  return new Date(Math.floor(ts.getTime() / (60 * 60 * 1000)) * 60 * 60 * 1000);
+}
+
+function comparePricePointCandidates(left: PricePointUpsertInput, right: PricePointUpsertInput): number {
+  const tsDelta = left.ts.getTime() - right.ts.getTime();
+  if (tsDelta !== 0) {
+    return tsDelta;
+  }
+
+  const sourceDelta = left.source.localeCompare(right.source);
+  if (sourceDelta !== 0) {
+    return sourceDelta;
+  }
+
+  return left.price.localeCompare(right.price);
+}
+
+function bucketPricePointsByInstrumentHour(rows: PricePointUpsertInput[]): PricePointUpsertInput[] {
+  const latestByInstrumentHour = new Map<string, PricePointUpsertInput>();
+
+  for (const row of rows) {
+    const bucketTs = truncateDateToHour(row.ts);
+    const key = `${row.instrumentId}:${bucketTs.getTime()}`;
+
+    const existing = latestByInstrumentHour.get(key);
+    if (!existing || comparePricePointCandidates(row, existing) > 0) {
+      latestByInstrumentHour.set(key, row);
+    }
+  }
+
+  return [...latestByInstrumentHour.values()]
+    .map((row) => ({
+      instrumentId: row.instrumentId,
+      ts: truncateDateToHour(row.ts),
+      price: row.price,
+      source: row.source
+    }))
+    .sort((left, right) => {
+      if (left.instrumentId !== right.instrumentId) {
+        return left.instrumentId - right.instrumentId;
+      }
+
+      return left.ts.getTime() - right.ts.getTime();
+    });
 }
 
 function resolveIngestMode(mode: SyncOptions["mode"]): "topN_live" | "full_catalog" {
@@ -245,6 +317,164 @@ function parseCursorMarketId(cursor: Record<string, unknown> | null): number {
   }
 
   return 0;
+}
+
+function parseNonNegativeInt(value: unknown, fallback = 0): number {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    return Math.floor(value);
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      return Math.floor(parsed);
+    }
+  }
+
+  return fallback;
+}
+
+function parseBoolean(value: unknown, fallback = false): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function parseIsoString(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+
+  return new Date(parsed).toISOString();
+}
+
+function shouldUseResumableFullCatalogStep(mode: "topN_live" | "full_catalog", options?: SyncOptions): boolean {
+  return mode === "full_catalog" && options?.resumeIntraStep === true;
+}
+
+function getFullCatalogStepRunStateKey(baseCheckpointKey: string, scopeStatus: "active" | "closed" | "all"): string {
+  return `${baseCheckpointKey}:full_catalog:run_state:${scopeStatus}`;
+}
+
+function parseFullCatalogStepRunState(
+  raw: Record<string, unknown> | null,
+  scopeStatus: "active" | "closed" | "all"
+): FullCatalogStepRunState | null {
+  if (!raw || raw.mode !== "full_catalog") {
+    return null;
+  }
+
+  const rawScope = raw.scopeStatus;
+  if (rawScope !== scopeStatus) {
+    return null;
+  }
+
+  const windowStartTs = parseNonNegativeInt(raw.windowStartTs, -1);
+  const windowEndTs = parseNonNegativeInt(raw.windowEndTs, -1);
+  const startedAt = parseIsoString(raw.startedAt);
+  const updatedAt = parseIsoString(raw.updatedAt);
+
+  if (windowStartTs < 0 || windowEndTs < 0 || startedAt === null || updatedAt === null) {
+    return null;
+  }
+
+  return {
+    mode: "full_catalog",
+    scopeStatus,
+    windowStartTs,
+    windowEndTs,
+    nextMarketCursorId: parseNonNegativeInt(raw.nextMarketCursorId, 0),
+    batchesProcessed: parseNonNegativeInt(raw.batchesProcessed, 0),
+    marketsProcessed: parseNonNegativeInt(raw.marketsProcessed, 0),
+    instrumentsProcessed: parseNonNegativeInt(raw.instrumentsProcessed, 0),
+    rowsFetched: parseNonNegativeInt(raw.rowsFetched, 0),
+    rowsUpserted: parseNonNegativeInt(raw.rowsUpserted, 0),
+    rowsSkipped: parseNonNegativeInt(raw.rowsSkipped, 0),
+    completed: parseBoolean(raw.completed, false),
+    startedAt,
+    updatedAt
+  };
+}
+
+async function resolveFullCatalogStepRunState(params: {
+  providerCode: ProviderCode;
+  baseCheckpointKey: string;
+  scopeStatus: "active" | "closed" | "all";
+  initialLookbackDays: number;
+}): Promise<{ window: IncrementalWindow; runStateKey: string; runState: FullCatalogStepRunState }> {
+  const runStateKey = getFullCatalogStepRunStateKey(params.baseCheckpointKey, params.scopeStatus);
+  const rawRunState = await getCheckpoint(params.providerCode, runStateKey);
+  const parsedRunState = parseFullCatalogStepRunState(rawRunState, params.scopeStatus);
+
+  if (parsedRunState && !parsedRunState.completed) {
+    return {
+      window: {
+        cursorKey: getIncrementalCursorKey(params.baseCheckpointKey, params.scopeStatus, "full_catalog"),
+        startTs: parsedRunState.windowStartTs,
+        endTs: parsedRunState.windowEndTs
+      },
+      runStateKey,
+      runState: parsedRunState
+    };
+  }
+
+  const window = await resolveIncrementalWindow({
+    providerCode: params.providerCode,
+    baseCheckpointKey: params.baseCheckpointKey,
+    scopeStatus: params.scopeStatus,
+    initialLookbackDays: params.initialLookbackDays,
+    mode: "full_catalog"
+  });
+
+  const nowIso = new Date().toISOString();
+  return {
+    window,
+    runStateKey,
+    runState: {
+      mode: "full_catalog",
+      scopeStatus: params.scopeStatus,
+      windowStartTs: window.startTs,
+      windowEndTs: window.endTs,
+      nextMarketCursorId: 0,
+      batchesProcessed: 0,
+      marketsProcessed: 0,
+      instrumentsProcessed: 0,
+      rowsFetched: 0,
+      rowsUpserted: 0,
+      rowsSkipped: 0,
+      completed: false,
+      startedAt: nowIso,
+      updatedAt: nowIso
+    }
+  };
+}
+
+async function saveFullCatalogStepRunState(
+  providerCode: ProviderCode,
+  runStateKey: string,
+  runState: FullCatalogStepRunState,
+  requestId?: string
+): Promise<void> {
+  await setCheckpoint(providerCode, runStateKey, {
+    mode: "full_catalog",
+    scopeStatus: runState.scopeStatus,
+    requestId: requestId ?? null,
+    windowStartTs: runState.windowStartTs,
+    windowEndTs: runState.windowEndTs,
+    nextMarketCursorId: runState.nextMarketCursorId,
+    batchesProcessed: runState.batchesProcessed,
+    marketsProcessed: runState.marketsProcessed,
+    instrumentsProcessed: runState.instrumentsProcessed,
+    rowsFetched: runState.rowsFetched,
+    rowsUpserted: runState.rowsUpserted,
+    rowsSkipped: runState.rowsSkipped,
+    completed: runState.completed,
+    startedAt: runState.startedAt,
+    updatedAt: runState.updatedAt
+  });
 }
 
 async function resolveIncrementalWindow(params: {
@@ -1690,10 +1920,639 @@ async function selectMarkets(params: {
   };
 }
 
+interface FullCatalogBatchProcessResult {
+  inputTargets: number;
+  instrumentsProcessed: number;
+  rowsFetched: number;
+  rowsUpserted: number;
+  rowsSkipped: number;
+}
+
+interface RunResumableFullCatalogStepParams {
+  providerCode: ProviderCode;
+  checkpointKey: string;
+  scopeStatus: "active" | "closed" | "all";
+  requestId?: string;
+  initialLookbackDays: number;
+  processMarketBatch: (marketBatch: SelectionMarketRow[], window: IncrementalWindow) => Promise<FullCatalogBatchProcessResult>;
+  finalize: (window: IncrementalWindow, runState: FullCatalogStepRunState) => Promise<void>;
+}
+
+function resolveFullCatalogResumeStepBudgetMs(): number {
+  const hardTimeoutHeadroom = Math.max(1, env.CRON_STEP_TIMEOUT_MS - 10_000);
+  return Math.max(1, Math.min(env.FULL_CATALOG_RESUME_STEP_BUDGET_MS, hardTimeoutHeadroom));
+}
+
+async function runResumableFullCatalogStepByMarketBatch(params: RunResumableFullCatalogStepParams): Promise<JobRunResult> {
+  const { providerCode, checkpointKey, scopeStatus } = params;
+  const stepBudgetMs = resolveFullCatalogResumeStepBudgetMs();
+  const deadline = Date.now() + stepBudgetMs;
+
+  const { window, runStateKey, runState } = await resolveFullCatalogStepRunState({
+    providerCode,
+    baseCheckpointKey: checkpointKey,
+    scopeStatus,
+    initialLookbackDays: params.initialLookbackDays
+  });
+
+  runState.completed = false;
+  runState.updatedAt = new Date().toISOString();
+  await saveFullCatalogStepRunState(providerCode, runStateKey, runState, params.requestId);
+
+  logIngestionProgress({
+    providerCode,
+    flow: checkpointKey,
+    mode: "full_catalog",
+    requestId: params.requestId,
+    phase: "started",
+    scopeStatus,
+    selectedMarkets: runState.marketsProcessed,
+    selectedInstruments: runState.instrumentsProcessed,
+    rowsFetched: runState.rowsFetched,
+    rowsUpserted: runState.rowsUpserted,
+    rowsSkipped: runState.rowsSkipped,
+    nextMarketCursorId: runState.nextMarketCursorId,
+    batchesProcessed: runState.batchesProcessed,
+    windowStartTs: window.startTs,
+    windowEndTs: window.endTs
+  });
+
+  let restartedFromZero = false;
+  let invocationRowsUpserted = 0;
+  let invocationRowsSkipped = 0;
+
+  while (Date.now() < deadline) {
+    const marketBatch = await listFullCatalogMarketBatch(
+      providerCode,
+      scopeStatus,
+      runState.nextMarketCursorId,
+      env.FULL_CATALOG_MARKET_BATCH_SIZE
+    );
+
+    if (marketBatch.length === 0) {
+      if (runState.nextMarketCursorId > 0 && runState.marketsProcessed === 0 && !restartedFromZero) {
+        runState.nextMarketCursorId = 0;
+        restartedFromZero = true;
+        continue;
+      }
+
+      await params.finalize(window, runState);
+      runState.completed = true;
+      runState.nextMarketCursorId = 0;
+      runState.updatedAt = new Date().toISOString();
+      await saveFullCatalogStepRunState(providerCode, runStateKey, runState, params.requestId);
+
+      logIngestionProgress({
+        providerCode,
+        flow: checkpointKey,
+        mode: "full_catalog",
+        requestId: params.requestId,
+        phase: "completed_step",
+        scopeStatus,
+        selectedMarkets: runState.marketsProcessed,
+        selectedInstruments: runState.instrumentsProcessed,
+        rowsFetched: runState.rowsFetched,
+        rowsUpserted: runState.rowsUpserted,
+        rowsSkipped: runState.rowsSkipped,
+        nextMarketCursorId: runState.nextMarketCursorId,
+        batchesProcessed: runState.batchesProcessed,
+        windowStartTs: window.startTs,
+        windowEndTs: window.endTs
+      });
+
+      return {
+        rowsUpserted: invocationRowsUpserted,
+        rowsSkipped: invocationRowsSkipped
+      };
+    }
+
+    const batchResult = await params.processMarketBatch(marketBatch, window);
+    runState.batchesProcessed += 1;
+    runState.marketsProcessed += marketBatch.length;
+    runState.instrumentsProcessed += batchResult.instrumentsProcessed;
+    runState.rowsFetched += batchResult.rowsFetched;
+    runState.rowsUpserted += batchResult.rowsUpserted;
+    runState.rowsSkipped += batchResult.rowsSkipped;
+
+    invocationRowsUpserted += batchResult.rowsUpserted;
+    invocationRowsSkipped += batchResult.rowsSkipped;
+
+    runState.nextMarketCursorId = marketBatch[marketBatch.length - 1]!.marketId;
+    runState.updatedAt = new Date().toISOString();
+    await saveFullCatalogStepRunState(providerCode, runStateKey, runState, params.requestId);
+
+    logIngestionProgress({
+      providerCode,
+      flow: checkpointKey,
+      mode: "full_catalog",
+      requestId: params.requestId,
+      phase: "chunk_completed",
+      scopeStatus,
+      chunkIndex: runState.batchesProcessed,
+      selectedMarkets: runState.marketsProcessed,
+      selectedInstruments: runState.instrumentsProcessed,
+      inputTargets: batchResult.inputTargets,
+      rowsFetched: runState.rowsFetched,
+      rowsUpserted: runState.rowsUpserted,
+      rowsSkipped: runState.rowsSkipped,
+      nextMarketCursorId: runState.nextMarketCursorId,
+      batchesProcessed: runState.batchesProcessed,
+      windowStartTs: window.startTs,
+      windowEndTs: window.endTs
+    });
+  }
+
+  runState.updatedAt = new Date().toISOString();
+  await saveFullCatalogStepRunState(providerCode, runStateKey, runState, params.requestId);
+
+  logIngestionProgress({
+    providerCode,
+    flow: checkpointKey,
+    mode: "full_catalog",
+    requestId: params.requestId,
+    phase: "in_progress_step",
+    scopeStatus,
+    selectedMarkets: runState.marketsProcessed,
+    selectedInstruments: runState.instrumentsProcessed,
+    rowsFetched: runState.rowsFetched,
+    rowsUpserted: runState.rowsUpserted,
+    rowsSkipped: runState.rowsSkipped,
+    nextMarketCursorId: runState.nextMarketCursorId,
+    batchesProcessed: runState.batchesProcessed,
+    windowStartTs: window.startTs,
+    windowEndTs: window.endTs
+  });
+
+  return {
+    rowsUpserted: invocationRowsUpserted,
+    rowsSkipped: invocationRowsSkipped,
+    partialReason: `step budget reached; continue from market cursor ${runState.nextMarketCursorId}`,
+    continueSameStep: true
+  };
+}
+
+async function syncProviderPricesResumableFullCatalog(
+  providerCode: ProviderCode,
+  checkpointKey: string,
+  scopeStatus: "active" | "closed" | "all",
+  adapter: ReturnType<typeof getAdapter>,
+  options?: SyncOptions
+): Promise<JobRunResult> {
+  return runResumableFullCatalogStepByMarketBatch({
+    providerCode,
+    checkpointKey,
+    scopeStatus,
+    requestId: options?.requestId,
+    initialLookbackDays: env.PRICE_LOOKBACK_DAYS,
+    processMarketBatch: async (marketBatch, window) => {
+      const marketIds = marketBatch.map((row) => row.marketId);
+      const instrumentRows = await listInstrumentsForMarkets(providerCode, marketIds);
+      const uniqueInstruments: AdapterInstrumentInput[] = Array.from(
+        instrumentRows
+          .reduce((map, row) => {
+            map.set(row.instrumentRef, {
+              marketRef: row.marketRef,
+              instrumentRef: row.instrumentRef
+            });
+            return map;
+          }, new Map<string, AdapterInstrumentInput>())
+          .values()
+      );
+      const instrumentRefToId = new Map(instrumentRows.map((row) => [row.instrumentRef, row.instrumentId]));
+
+      let rowsFetched = 0;
+      let rowsUpserted = 0;
+      let rowsSkipped = 0;
+
+      for (const instrumentsChunk of chunkArray(uniqueInstruments, env.FULL_CATALOG_INSTRUMENT_BATCH_SIZE)) {
+        if (instrumentsChunk.length === 0) {
+          continue;
+        }
+
+        const points = await adapter.listPricePoints(instrumentsChunk, {
+          startTs: window.startTs,
+          endTs: window.endTs
+        });
+        rowsFetched += points.length;
+
+        for (const rows of chunkArray(points, 5000)) {
+          const rowsToUpsertRaw = rows
+            .map((item) => {
+              const instrumentId = instrumentRefToId.get(item.instrumentRef);
+              if (!instrumentId) {
+                rowsSkipped += 1;
+                return null;
+              }
+
+              return {
+                instrumentId,
+                ts: item.ts,
+                price: item.price.toFixed(6),
+                source: item.source
+              };
+            })
+            .filter((item): item is NonNullable<typeof item> => item !== null);
+
+          const rowsToUpsert = bucketPricePointsByInstrumentHour(rowsToUpsertRaw);
+          if (rowsToUpsert.length === 0) {
+            continue;
+          }
+
+          await db
+            .insert(pricePoint5m)
+            .values(rowsToUpsert)
+            .onConflictDoUpdate({
+              target: [pricePoint5m.instrumentId, pricePoint5m.ts],
+              set: {
+                price: sql`excluded.price`,
+                source: sql`excluded.source`
+              }
+            });
+
+          rowsUpserted += rowsToUpsert.length;
+        }
+      }
+
+      return {
+        inputTargets: uniqueInstruments.length,
+        instrumentsProcessed: uniqueInstruments.length,
+        rowsFetched,
+        rowsUpserted,
+        rowsSkipped
+      };
+    },
+    finalize: async (window, runState) => {
+      await setCheckpoint(providerCode, window.cursorKey, {
+        cursorVersion: 1,
+        lastRunAt: new Date().toISOString(),
+        requestId: options?.requestId ?? null,
+        mode: "full_catalog",
+        scopeStatus,
+        windowStartTs: window.startTs,
+        windowEndTs: window.endTs,
+        nextWindowStartTs: Math.max(0, window.endTs - env.INGEST_INCREMENTAL_OVERLAP_SECONDS),
+        lastWindowEndTs: window.endTs,
+        markets: runState.marketsProcessed,
+        instruments: runState.instrumentsProcessed,
+        points: runState.rowsFetched
+      });
+    }
+  });
+}
+
+async function syncProviderOrderbookResumableFullCatalog(
+  providerCode: ProviderCode,
+  checkpointKey: string,
+  scopeStatus: "active" | "closed" | "all",
+  adapter: ReturnType<typeof getAdapter>,
+  options?: SyncOptions
+): Promise<JobRunResult> {
+  return runResumableFullCatalogStepByMarketBatch({
+    providerCode,
+    checkpointKey,
+    scopeStatus,
+    requestId: options?.requestId,
+    initialLookbackDays: env.PRICE_LOOKBACK_DAYS,
+    processMarketBatch: async (marketBatch, window) => {
+      const marketIds = marketBatch.map((row) => row.marketId);
+      const instrumentRows = await listInstrumentsForMarkets(providerCode, marketIds);
+      const instruments = Array.from(
+        instrumentRows
+          .reduce((map, row) => {
+            map.set(row.instrumentRef, {
+              marketRef: row.marketRef,
+              instrumentRef: row.instrumentRef
+            });
+            return map;
+          }, new Map<string, AdapterInstrumentInput>())
+          .values()
+      );
+      const instrumentRefToId = new Map(instrumentRows.map((row) => [row.instrumentRef, row.instrumentId]));
+
+      let rowsFetched = 0;
+      let rowsUpserted = 0;
+      let rowsSkipped = 0;
+
+      for (const instrumentsChunk of chunkArray(instruments, env.FULL_CATALOG_INSTRUMENT_BATCH_SIZE)) {
+        if (instrumentsChunk.length === 0) {
+          continue;
+        }
+
+        const snapshots = await adapter.listOrderbookTop(instrumentsChunk);
+        rowsFetched += snapshots.length;
+
+        for (const rows of chunkArray(snapshots, 1000)) {
+          const rowsToUpsertRaw = rows
+            .map((item) => {
+              const instrumentId = instrumentRefToId.get(item.instrumentRef);
+              if (!instrumentId) {
+                rowsSkipped += 1;
+                return null;
+              }
+
+              return {
+                instrumentId,
+                ts: item.ts,
+                bestBid: toNullableNumericString(item.bestBid),
+                bestAsk: toNullableNumericString(item.bestAsk),
+                spread: toNullableNumericString(item.spread),
+                bidDepthTop5: toNullableDepthNumericString(item.bidDepthTop5),
+                askDepthTop5: toNullableDepthNumericString(item.askDepthTop5),
+                rawJson: item.rawJson
+              };
+            })
+            .filter((item): item is NonNullable<typeof item> => item !== null);
+
+          const rowsToUpsert = Array.from(
+            rowsToUpsertRaw
+              .reduce((map, row) => {
+                map.set(`${row.instrumentId}:${row.ts.toISOString()}`, row);
+                return map;
+              }, new Map<string, (typeof rowsToUpsertRaw)[number]>())
+              .values()
+          );
+
+          if (rowsToUpsert.length === 0) {
+            continue;
+          }
+
+          await db
+            .insert(orderbookTop)
+            .values(rowsToUpsert)
+            .onConflictDoUpdate({
+              target: [orderbookTop.instrumentId, orderbookTop.ts],
+              set: {
+                bestBid: sql`excluded.best_bid`,
+                bestAsk: sql`excluded.best_ask`,
+                spread: sql`excluded.spread`,
+                bidDepthTop5: sql`excluded.bid_depth_top5`,
+                askDepthTop5: sql`excluded.ask_depth_top5`,
+                rawJson: sql`excluded.raw_json`
+              }
+            });
+
+          rowsUpserted += rowsToUpsert.length;
+        }
+      }
+
+      return {
+        inputTargets: instruments.length,
+        instrumentsProcessed: instruments.length,
+        rowsFetched,
+        rowsUpserted,
+        rowsSkipped
+      };
+    },
+    finalize: async (window, runState) => {
+      await setCheckpoint(providerCode, window.cursorKey, {
+        lastRunAt: new Date().toISOString(),
+        requestId: options?.requestId ?? null,
+        mode: "full_catalog",
+        scopeStatus,
+        windowStartTs: window.startTs,
+        windowEndTs: window.endTs,
+        markets: runState.marketsProcessed,
+        instruments: runState.instrumentsProcessed,
+        snapshots: runState.rowsFetched
+      });
+    }
+  });
+}
+
+async function syncProviderTradesResumableFullCatalog(
+  providerCode: ProviderCode,
+  checkpointKey: string,
+  scopeStatus: "active" | "closed" | "all",
+  adapter: ReturnType<typeof getAdapter>,
+  options?: SyncOptions
+): Promise<JobRunResult> {
+  return runResumableFullCatalogStepByMarketBatch({
+    providerCode,
+    checkpointKey,
+    scopeStatus,
+    requestId: options?.requestId,
+    initialLookbackDays: env.TRADES_LOOKBACK_DAYS,
+    processMarketBatch: async (marketBatch, window) => {
+      const marketInputs: AdapterMarketInput[] = marketBatch.map((row) => ({ marketRef: row.marketRef }));
+      const marketRefToId = new Map(marketBatch.map((row) => [row.marketRef, row.marketId]));
+      const instrumentRows = await listInstrumentsForMarkets(
+        providerCode,
+        marketBatch.map((row) => row.marketId)
+      );
+      const instrumentRefToId = new Map(instrumentRows.map((row) => [row.instrumentRef, row.instrumentId]));
+
+      let rowsFetched = 0;
+      let rowsUpserted = 0;
+      let rowsSkipped = 0;
+
+      const trades = await adapter.listTrades(marketInputs, {
+        startTs: window.startTs,
+        endTs: window.endTs
+      });
+      rowsFetched += trades.length;
+
+      for (const rows of chunkArray(trades, 2000)) {
+        const rowsToUpsertRaw = rows
+          .map((item) => {
+            const marketId = marketRefToId.get(item.marketRef);
+            if (!marketId || !item.tradeRef) {
+              rowsSkipped += 1;
+              return null;
+            }
+
+            const instrumentId = item.instrumentRef ? (instrumentRefToId.get(item.instrumentRef) ?? null) : null;
+
+            return {
+              providerCode,
+              tradeRef: item.tradeRef,
+              marketId,
+              instrumentId,
+              ts: item.ts,
+              side: item.side,
+              price: toNullableNumericString(item.price),
+              qty: toNullableDepthNumericString(item.qty),
+              notionalUsd: toNullableDepthNumericString(item.notionalUsd),
+              traderRef: item.traderRef,
+              source: item.source,
+              rawJson: item.rawJson
+            };
+          })
+          .filter((item): item is NonNullable<typeof item> => item !== null);
+
+        const rowsToUpsert = Array.from(
+          rowsToUpsertRaw
+            .reduce((map, row) => {
+              map.set(`${row.providerCode}:${row.tradeRef}`, row);
+              return map;
+            }, new Map<string, (typeof rowsToUpsertRaw)[number]>())
+            .values()
+        );
+
+        if (rowsToUpsert.length === 0) {
+          continue;
+        }
+
+        await db
+          .insert(tradeEvent)
+          .values(rowsToUpsert)
+          .onConflictDoUpdate({
+            target: [tradeEvent.providerCode, tradeEvent.tradeRef],
+            set: {
+              marketId: sql`excluded.market_id`,
+              instrumentId: sql`excluded.instrument_id`,
+              ts: sql`excluded.ts`,
+              side: sql`excluded.side`,
+              price: sql`excluded.price`,
+              qty: sql`excluded.qty`,
+              notionalUsd: sql`excluded.notional_usd`,
+              traderRef: sql`excluded.trader_ref`,
+              source: sql`excluded.source`,
+              rawJson: sql`excluded.raw_json`
+            }
+          });
+
+        rowsUpserted += rowsToUpsert.length;
+      }
+
+      return {
+        inputTargets: marketInputs.length,
+        instrumentsProcessed: instrumentRows.length,
+        rowsFetched,
+        rowsUpserted,
+        rowsSkipped
+      };
+    },
+    finalize: async (window, runState) => {
+      await setCheckpoint(providerCode, window.cursorKey, {
+        cursorVersion: 1,
+        lastRunAt: new Date().toISOString(),
+        requestId: options?.requestId ?? null,
+        mode: "full_catalog",
+        scopeStatus,
+        windowStartTs: window.startTs,
+        windowEndTs: window.endTs,
+        nextWindowStartTs: Math.max(0, window.endTs - env.INGEST_INCREMENTAL_OVERLAP_SECONDS),
+        lastWindowEndTs: window.endTs,
+        markets: runState.marketsProcessed,
+        instruments: runState.instrumentsProcessed,
+        trades: runState.rowsFetched
+      });
+    }
+  });
+}
+
+async function syncProviderOpenInterestResumableFullCatalog(
+  providerCode: ProviderCode,
+  checkpointKey: string,
+  scopeStatus: "active" | "closed" | "all",
+  adapter: ReturnType<typeof getAdapter>,
+  options?: SyncOptions
+): Promise<JobRunResult> {
+  return runResumableFullCatalogStepByMarketBatch({
+    providerCode,
+    checkpointKey,
+    scopeStatus,
+    requestId: options?.requestId,
+    initialLookbackDays: env.OI_LOOKBACK_DAYS,
+    processMarketBatch: async (marketBatch, window) => {
+      const marketInputs: AdapterMarketInput[] = marketBatch.map((row) => ({ marketRef: row.marketRef }));
+      const marketRefToId = new Map(marketBatch.map((row) => [row.marketRef, row.marketId]));
+
+      let rowsFetched = 0;
+      let rowsUpserted = 0;
+      let rowsSkipped = 0;
+
+      const points = await adapter.listOpenInterest(marketInputs, {
+        startTs: window.startTs,
+        endTs: window.endTs
+      });
+      rowsFetched += points.length;
+
+      for (const rows of chunkArray(points, 2000)) {
+        const rowsToUpsertRaw = rows
+          .map((item) => {
+            const marketId = marketRefToId.get(item.marketRef);
+            if (!marketId) {
+              rowsSkipped += 1;
+              return null;
+            }
+
+            return {
+              providerCode,
+              marketId,
+              ts: item.ts,
+              value: item.value.toFixed(6),
+              unit: item.unit,
+              source: item.source,
+              rawJson: item.rawJson
+            };
+          })
+          .filter((item): item is NonNullable<typeof item> => item !== null);
+
+        const rowsToUpsert = Array.from(
+          rowsToUpsertRaw
+            .reduce((map, row) => {
+              map.set(`${row.providerCode}:${row.marketId}:${row.ts.toISOString()}`, row);
+              return map;
+            }, new Map<string, (typeof rowsToUpsertRaw)[number]>())
+            .values()
+        );
+
+        if (rowsToUpsert.length === 0) {
+          continue;
+        }
+
+        await db
+          .insert(oiPoint5m)
+          .values(rowsToUpsert)
+          .onConflictDoUpdate({
+            target: [oiPoint5m.providerCode, oiPoint5m.marketId, oiPoint5m.ts],
+            set: {
+              value: sql`excluded.value`,
+              unit: sql`excluded.unit`,
+              source: sql`excluded.source`,
+              rawJson: sql`excluded.raw_json`
+            }
+          });
+
+        rowsUpserted += rowsToUpsert.length;
+      }
+
+      return {
+        inputTargets: marketInputs.length,
+        instrumentsProcessed: 0,
+        rowsFetched,
+        rowsUpserted,
+        rowsSkipped
+      };
+    },
+    finalize: async (window, runState) => {
+      await setCheckpoint(providerCode, window.cursorKey, {
+        cursorVersion: 1,
+        lastRunAt: new Date().toISOString(),
+        requestId: options?.requestId ?? null,
+        mode: "full_catalog",
+        scopeStatus,
+        windowStartTs: window.startTs,
+        windowEndTs: window.endTs,
+        nextWindowStartTs: Math.max(0, window.endTs - env.INGEST_INCREMENTAL_OVERLAP_SECONDS),
+        lastWindowEndTs: window.endTs,
+        markets: runState.marketsProcessed,
+        points: runState.rowsFetched
+      });
+    }
+  });
+}
+
 async function syncProviderPrices(providerCode: ProviderCode, checkpointKey: string, options?: SyncOptions): Promise<JobRunResult> {
   const adapter = getAdapter(providerCode);
   const mode = resolveIngestMode(options?.mode);
   const scopeStatus = resolveScopeStatus(options?.scopeStatus, mode);
+
+  if (shouldUseResumableFullCatalogStep(mode, options)) {
+    return syncProviderPricesResumableFullCatalog(providerCode, checkpointKey, scopeStatus, adapter, options);
+  }
+
   const window = await resolveIncrementalWindow({
     providerCode,
     baseCheckpointKey: checkpointKey,
@@ -1859,6 +2718,11 @@ async function syncProviderOrderbook(providerCode: ProviderCode, checkpointKey: 
   const adapter = getAdapter(providerCode);
   const mode = resolveIngestMode(options?.mode);
   const scopeStatus = resolveScopeStatus(options?.scopeStatus, mode);
+
+  if (shouldUseResumableFullCatalogStep(mode, options)) {
+    return syncProviderOrderbookResumableFullCatalog(providerCode, checkpointKey, scopeStatus, adapter, options);
+  }
+
   const checkpointStateKey = getIncrementalCursorKey(checkpointKey, scopeStatus, mode);
   const selected = await selectInstruments({
     providerCode,
@@ -2014,6 +2878,11 @@ async function syncProviderTrades(providerCode: ProviderCode, checkpointKey: str
   const adapter = getAdapter(providerCode);
   const mode = resolveIngestMode(options?.mode);
   const scopeStatus = resolveScopeStatus(options?.scopeStatus, mode);
+
+  if (shouldUseResumableFullCatalogStep(mode, options)) {
+    return syncProviderTradesResumableFullCatalog(providerCode, checkpointKey, scopeStatus, adapter, options);
+  }
+
   const window = await resolveIncrementalWindow({
     providerCode,
     baseCheckpointKey: checkpointKey,
@@ -2205,6 +3074,11 @@ async function syncProviderOpenInterest(
   const adapter = getAdapter(providerCode);
   const mode = resolveIngestMode(options?.mode);
   const scopeStatus = resolveScopeStatus(options?.scopeStatus, mode);
+
+  if (shouldUseResumableFullCatalogStep(mode, options)) {
+    return syncProviderOpenInterestResumableFullCatalog(providerCode, checkpointKey, scopeStatus, adapter, options);
+  }
+
   const window = await resolveIncrementalWindow({
     providerCode,
     baseCheckpointKey: checkpointKey,

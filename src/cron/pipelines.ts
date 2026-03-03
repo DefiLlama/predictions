@@ -41,7 +41,7 @@ interface PipelineCounters {
   partials: number;
 }
 
-interface FullCatalogResumeState {
+interface FullCatalogResumeStateV1 {
   version: 1;
   cycleId: string;
   cycleStartedAt: string;
@@ -54,6 +54,25 @@ interface FullCatalogResumeState {
   lastRequestId: string | null;
   lastStepStartedAt: string | null;
   lastStepFinishedAt: string | null;
+  updatedAt: string;
+}
+
+interface FullCatalogProviderResumeState {
+  stepIndex: number;
+  stepRetries: number;
+  currentStep: string;
+  lastRequestId: string | null;
+  lastStepStartedAt: string | null;
+  lastStepFinishedAt: string | null;
+  completed: boolean;
+}
+
+interface FullCatalogResumeState {
+  version: 2;
+  cycleId: string;
+  cycleStartedAt: string;
+  cycleExpiresAt: string;
+  providers: Record<ProviderCode, FullCatalogProviderResumeState>;
   updatedAt: string;
 }
 
@@ -172,7 +191,7 @@ async function runPipelineStep(requestId: string, pipeline: string, definition: 
           rowsUpserted: result.rowsUpserted,
           rowsSkipped: result.rowsSkipped,
           httpMetrics: metrics,
-          status: result.partialReason ? "partial_success" : "success"
+          status: result.partialReason || result.continueSameStep ? "partial_success" : "success"
         },
         "Cron pipeline step finished"
       );
@@ -242,7 +261,7 @@ async function runProviderSteps(
       const result = await runPipelineStep(requestId, pipeline, step);
       counters.rowsUpserted += result.rowsUpserted;
       counters.rowsSkipped += result.rowsSkipped;
-      if (result.partialReason) {
+      if (result.partialReason || result.continueSameStep) {
         counters.partials += 1;
       }
     } catch {
@@ -296,16 +315,48 @@ function parseIso(value: unknown): string | null {
   return new Date(parsed).toISOString();
 }
 
-function clampProviderIndex(index: number): number {
-  if (index < 0) {
-    return 0;
+function getFullCatalogStepNames(providerCode: ProviderCode): string[] {
+  if (providerCode === "polymarket") {
+    return [
+      JOB_NAMES.POLYMARKET_SYNC_METADATA,
+      JOB_NAMES.MARKET_RELINK_EVENTS,
+      JOB_NAMES.SCOPE_REBUILD,
+      JOB_NAMES.POLYMARKET_SYNC_PRICES_FULL_CATALOG,
+      JOB_NAMES.POLYMARKET_SYNC_ORDERBOOK_FULL_CATALOG,
+      JOB_NAMES.POLYMARKET_SYNC_TRADES_FULL_CATALOG,
+      JOB_NAMES.POLYMARKET_SYNC_OI_FULL_CATALOG,
+      JOB_NAMES.CATEGORY_ASSIGN_MARKETS,
+      JOB_NAMES.ANALYTICS_ROLLUP_PROVIDER_CATEGORY_1H,
+      JOB_NAMES.ANALYTICS_ROLLUP_PRICE_1H,
+      JOB_NAMES.ANALYTICS_ROLLUP_LIQUIDITY_1H
+    ];
   }
 
-  if (index >= PIPELINE_PROVIDERS.length) {
-    return PIPELINE_PROVIDERS.length - 1;
-  }
+  return [
+    JOB_NAMES.KALSHI_SYNC_METADATA,
+    JOB_NAMES.MARKET_RELINK_EVENTS,
+    JOB_NAMES.SCOPE_REBUILD,
+    JOB_NAMES.KALSHI_SYNC_PRICES_FULL_CATALOG,
+    JOB_NAMES.KALSHI_SYNC_ORDERBOOK_FULL_CATALOG,
+    JOB_NAMES.KALSHI_SYNC_TRADES_FULL_CATALOG,
+    JOB_NAMES.KALSHI_SYNC_OI_FULL_CATALOG,
+    JOB_NAMES.CATEGORY_ASSIGN_MARKETS,
+    JOB_NAMES.ANALYTICS_ROLLUP_PROVIDER_CATEGORY_1H,
+    JOB_NAMES.ANALYTICS_ROLLUP_PRICE_1H,
+    JOB_NAMES.ANALYTICS_ROLLUP_LIQUIDITY_1H
+  ];
+}
 
-  return index;
+function createInitialProviderResumeState(providerCode: ProviderCode, requestId?: string): FullCatalogProviderResumeState {
+  return {
+    stepIndex: 0,
+    stepRetries: 0,
+    currentStep: getFullCatalogStepNames(providerCode)[0]!,
+    lastRequestId: requestId ?? null,
+    lastStepStartedAt: null,
+    lastStepFinishedAt: null,
+    completed: false
+  };
 }
 
 function createFullCatalogResumeState(now: Date, requestId?: string): FullCatalogResumeState {
@@ -313,23 +364,19 @@ function createFullCatalogResumeState(now: Date, requestId?: string): FullCatalo
   const cycleExpiresAt = new Date(now.getTime() + env.FULL_CATALOG_CYCLE_TTL_MS).toISOString();
 
   return {
-    version: 1,
+    version: 2,
     cycleId: randomUUID(),
     cycleStartedAt,
     cycleExpiresAt,
-    providerIndex: 0,
-    stepIndex: 0,
-    stepRetries: 0,
-    currentProvider: PIPELINE_PROVIDERS[0],
-    currentStep: JOB_NAMES.POLYMARKET_SYNC_METADATA,
-    lastRequestId: requestId ?? null,
-    lastStepStartedAt: null,
-    lastStepFinishedAt: null,
+    providers: {
+      polymarket: createInitialProviderResumeState("polymarket", requestId),
+      kalshi: createInitialProviderResumeState("kalshi", requestId)
+    },
     updatedAt: cycleStartedAt
   };
 }
 
-function parseFullCatalogResumeState(raw: Record<string, unknown> | null): FullCatalogResumeState | null {
+function parseFullCatalogResumeStateV1(raw: Record<string, unknown> | null): FullCatalogResumeStateV1 | null {
   if (!raw || raw.version !== 1) {
     return null;
   }
@@ -342,8 +389,7 @@ function parseFullCatalogResumeState(raw: Record<string, unknown> | null): FullC
     return null;
   }
 
-  const providerIndex = clampProviderIndex(Math.floor(parseFiniteNumber(raw.providerIndex, 0)));
-  const currentProvider = PIPELINE_PROVIDERS[providerIndex];
+  const providerIndex = Math.max(0, Math.min(Math.floor(parseFiniteNumber(raw.providerIndex, 0)), PIPELINE_PROVIDERS.length - 1));
 
   return {
     version: 1,
@@ -353,13 +399,112 @@ function parseFullCatalogResumeState(raw: Record<string, unknown> | null): FullC
     providerIndex,
     stepIndex: Math.max(0, Math.floor(parseFiniteNumber(raw.stepIndex, 0))),
     stepRetries: Math.max(0, Math.floor(parseFiniteNumber(raw.stepRetries, 0))),
-    currentProvider,
+    currentProvider: PIPELINE_PROVIDERS[providerIndex]!,
     currentStep: typeof raw.currentStep === "string" && raw.currentStep.length > 0 ? raw.currentStep : JOB_NAMES.POLYMARKET_SYNC_METADATA,
     lastRequestId: typeof raw.lastRequestId === "string" ? raw.lastRequestId : null,
     lastStepStartedAt: parseIso(raw.lastStepStartedAt),
     lastStepFinishedAt: parseIso(raw.lastStepFinishedAt),
     updatedAt: parseIso(raw.updatedAt) ?? cycleStartedAt
   };
+}
+
+function parseProviderResumeState(providerCode: ProviderCode, raw: unknown): FullCatalogProviderResumeState {
+  const base = createInitialProviderResumeState(providerCode);
+  const stepNames = getFullCatalogStepNames(providerCode);
+
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return base;
+  }
+
+  const value = raw as Record<string, unknown>;
+  const stepIndex = Math.max(0, Math.floor(parseFiniteNumber(value.stepIndex, 0)));
+  const completed = typeof value.completed === "boolean" ? value.completed : stepIndex >= stepNames.length;
+  const normalizedStepIndex = completed ? Math.max(stepNames.length, stepIndex) : Math.min(stepIndex, stepNames.length - 1);
+
+  return {
+    stepIndex: normalizedStepIndex,
+    stepRetries: Math.max(0, Math.floor(parseFiniteNumber(value.stepRetries, 0))),
+    currentStep:
+      typeof value.currentStep === "string" && value.currentStep.length > 0
+        ? value.currentStep
+        : completed
+          ? stepNames[stepNames.length - 1]!
+          : stepNames[normalizedStepIndex]!,
+    lastRequestId: typeof value.lastRequestId === "string" ? value.lastRequestId : null,
+    lastStepStartedAt: parseIso(value.lastStepStartedAt),
+    lastStepFinishedAt: parseIso(value.lastStepFinishedAt),
+    completed
+  };
+}
+
+function parseFullCatalogResumeStateV2(raw: Record<string, unknown> | null): FullCatalogResumeState | null {
+  if (!raw || raw.version !== 2) {
+    return null;
+  }
+
+  const cycleId = typeof raw.cycleId === "string" && raw.cycleId.trim().length > 0 ? raw.cycleId : null;
+  const cycleStartedAt = parseIso(raw.cycleStartedAt);
+  const cycleExpiresAt = parseIso(raw.cycleExpiresAt);
+  if (!cycleId || !cycleStartedAt || !cycleExpiresAt) {
+    return null;
+  }
+
+  const providersRaw = raw.providers;
+  if (!providersRaw || typeof providersRaw !== "object" || Array.isArray(providersRaw)) {
+    return null;
+  }
+
+  const providersRecord = providersRaw as Record<string, unknown>;
+
+  return {
+    version: 2,
+    cycleId,
+    cycleStartedAt,
+    cycleExpiresAt,
+    providers: {
+      polymarket: parseProviderResumeState("polymarket", providersRecord.polymarket),
+      kalshi: parseProviderResumeState("kalshi", providersRecord.kalshi)
+    },
+    updatedAt: parseIso(raw.updatedAt) ?? cycleStartedAt
+  };
+}
+
+export function migrateFullCatalogResumeStateV1ToV2(stateV1: FullCatalogResumeStateV1): FullCatalogResumeState {
+  const migrated = createFullCatalogResumeState(new Date(stateV1.cycleStartedAt), stateV1.lastRequestId ?? undefined);
+  migrated.cycleId = stateV1.cycleId;
+  migrated.cycleStartedAt = stateV1.cycleStartedAt;
+  migrated.cycleExpiresAt = stateV1.cycleExpiresAt;
+  migrated.updatedAt = stateV1.updatedAt;
+
+  const providerState = migrated.providers[stateV1.currentProvider];
+  providerState.stepIndex = stateV1.stepIndex;
+  providerState.stepRetries = stateV1.stepRetries;
+  providerState.currentStep = stateV1.currentStep;
+  providerState.lastRequestId = stateV1.lastRequestId;
+  providerState.lastStepStartedAt = stateV1.lastStepStartedAt;
+  providerState.lastStepFinishedAt = stateV1.lastStepFinishedAt;
+  providerState.completed = false;
+
+  const currentProviderIdx = PIPELINE_PROVIDERS.indexOf(stateV1.currentProvider);
+  for (const providerCode of PIPELINE_PROVIDERS) {
+    const idx = PIPELINE_PROVIDERS.indexOf(providerCode);
+    const state = migrated.providers[providerCode];
+    const stepNames = getFullCatalogStepNames(providerCode);
+
+    if (idx < currentProviderIdx) {
+      state.stepIndex = stepNames.length;
+      state.stepRetries = 0;
+      state.currentStep = stepNames[stepNames.length - 1]!;
+      state.completed = true;
+    } else if (idx > currentProviderIdx) {
+      state.stepIndex = 0;
+      state.stepRetries = 0;
+      state.currentStep = stepNames[0]!;
+      state.completed = false;
+    }
+  }
+
+  return migrated;
 }
 
 async function saveFullCatalogResumeState(state: FullCatalogResumeState): Promise<void> {
@@ -373,35 +518,61 @@ async function saveFullCatalogResumeState(state: FullCatalogResumeState): Promis
 async function loadFullCatalogResumeState(requestId: string): Promise<FullCatalogResumeState> {
   const now = new Date();
   const raw = await getCheckpoint(FULL_CATALOG_RESUME_CHECKPOINT_PROVIDER, FULL_CATALOG_RESUME_CHECKPOINT_KEY);
-  const parsed = parseFullCatalogResumeState(raw);
+  const parsedV2 = parseFullCatalogResumeStateV2(raw);
   const nowMs = now.getTime();
 
-  if (!parsed || Date.parse(parsed.cycleExpiresAt) <= nowMs) {
-    const initialized = createFullCatalogResumeState(now, requestId);
-    await saveFullCatalogResumeState(initialized);
-    return initialized;
+  if (parsedV2 && Date.parse(parsedV2.cycleExpiresAt) > nowMs) {
+    return parsedV2;
   }
 
-  return parsed;
+  const parsedV1 = parseFullCatalogResumeStateV1(raw);
+  if (parsedV1 && Date.parse(parsedV1.cycleExpiresAt) > nowMs) {
+    const migrated = migrateFullCatalogResumeStateV1ToV2(parsedV1);
+    await saveFullCatalogResumeState(migrated);
+    return migrated;
+  }
+
+  const initialized = createFullCatalogResumeState(now, requestId);
+  await saveFullCatalogResumeState(initialized);
+  return initialized;
 }
 
-function resolveCurrentFullCatalogStep(state: FullCatalogResumeState, requestId: string): StepDefinition | null {
-  while (state.providerIndex < PIPELINE_PROVIDERS.length) {
-    const providerCode = PIPELINE_PROVIDERS[state.providerIndex]!;
-    const steps = buildFullCatalogSteps(providerCode, requestId);
-    if (state.stepIndex < steps.length) {
-      const currentStep = steps[state.stepIndex]!;
-      state.currentProvider = providerCode;
-      state.currentStep = currentStep.step;
-      return currentStep;
-    }
-
-    state.providerIndex += 1;
-    state.stepIndex = 0;
-    state.stepRetries = 0;
+function resolveCurrentFullCatalogStep(
+  state: FullCatalogResumeState,
+  providerCode: ProviderCode,
+  requestId: string,
+  resumeIntraStep = false
+): StepDefinition | null {
+  const providerState = state.providers[providerCode];
+  if (providerState.completed) {
+    return null;
   }
 
-  return null;
+  const steps = buildFullCatalogSteps(providerCode, requestId, resumeIntraStep);
+  if (providerState.stepIndex >= steps.length) {
+    providerState.completed = true;
+    providerState.stepRetries = 0;
+    providerState.currentStep = steps[steps.length - 1]?.step ?? providerState.currentStep;
+    return null;
+  }
+
+  const currentStep = steps[providerState.stepIndex]!;
+  providerState.currentStep = currentStep.step;
+  return currentStep;
+}
+
+function isFullCatalogCycleCompleted(state: FullCatalogResumeState): boolean {
+  return PIPELINE_PROVIDERS.every((providerCode) => state.providers[providerCode].completed);
+}
+
+function getNextFullCatalogStepName(state: FullCatalogResumeState, providerCode: ProviderCode): string | null {
+  const providerState = state.providers[providerCode];
+  const stepNames = getFullCatalogStepNames(providerCode);
+  if (providerState.completed || providerState.stepIndex >= stepNames.length) {
+    return null;
+  }
+
+  return stepNames[providerState.stepIndex]!;
 }
 
 function buildTopNLiveSteps(providerCode: ProviderCode, requestId: string): StepDefinition[] {
@@ -556,7 +727,7 @@ function buildTopNLiveSteps(providerCode: ProviderCode, requestId: string): Step
   ];
 }
 
-function buildFullCatalogSteps(providerCode: ProviderCode, requestId: string): StepDefinition[] {
+function buildFullCatalogSteps(providerCode: ProviderCode, requestId: string, resumeIntraStep = false): StepDefinition[] {
   if (providerCode === "polymarket") {
     return [
       {
@@ -581,25 +752,25 @@ function buildFullCatalogSteps(providerCode: ProviderCode, requestId: string): S
         providerCode,
         step: JOB_NAMES.POLYMARKET_SYNC_PRICES_FULL_CATALOG,
         mode: "full_catalog",
-        run: () => syncPolymarketPrices({ requestId, scopeStatus: "active", mode: "full_catalog" })
+        run: () => syncPolymarketPrices({ requestId, scopeStatus: "active", mode: "full_catalog", resumeIntraStep })
       },
       {
         providerCode,
         step: JOB_NAMES.POLYMARKET_SYNC_ORDERBOOK_FULL_CATALOG,
         mode: "full_catalog",
-        run: () => syncPolymarketOrderbook({ requestId, scopeStatus: "active", mode: "full_catalog" })
+        run: () => syncPolymarketOrderbook({ requestId, scopeStatus: "active", mode: "full_catalog", resumeIntraStep })
       },
       {
         providerCode,
         step: JOB_NAMES.POLYMARKET_SYNC_TRADES_FULL_CATALOG,
         mode: "full_catalog",
-        run: () => syncPolymarketTrades({ requestId, scopeStatus: "active", mode: "full_catalog" })
+        run: () => syncPolymarketTrades({ requestId, scopeStatus: "active", mode: "full_catalog", resumeIntraStep })
       },
       {
         providerCode,
         step: JOB_NAMES.POLYMARKET_SYNC_OI_FULL_CATALOG,
         mode: "full_catalog",
-        run: () => syncPolymarketOpenInterest({ requestId, scopeStatus: "active", mode: "full_catalog" })
+        run: () => syncPolymarketOpenInterest({ requestId, scopeStatus: "active", mode: "full_catalog", resumeIntraStep })
       },
       {
         providerCode,
@@ -656,25 +827,25 @@ function buildFullCatalogSteps(providerCode: ProviderCode, requestId: string): S
       providerCode,
       step: JOB_NAMES.KALSHI_SYNC_PRICES_FULL_CATALOG,
       mode: "full_catalog",
-      run: () => syncKalshiPrices({ requestId, scopeStatus: "active", mode: "full_catalog" })
+      run: () => syncKalshiPrices({ requestId, scopeStatus: "active", mode: "full_catalog", resumeIntraStep })
     },
     {
       providerCode,
       step: JOB_NAMES.KALSHI_SYNC_ORDERBOOK_FULL_CATALOG,
       mode: "full_catalog",
-      run: () => syncKalshiOrderbook({ requestId, scopeStatus: "active", mode: "full_catalog" })
+      run: () => syncKalshiOrderbook({ requestId, scopeStatus: "active", mode: "full_catalog", resumeIntraStep })
     },
     {
       providerCode,
       step: JOB_NAMES.KALSHI_SYNC_TRADES_FULL_CATALOG,
       mode: "full_catalog",
-      run: () => syncKalshiTrades({ requestId, scopeStatus: "active", mode: "full_catalog" })
+      run: () => syncKalshiTrades({ requestId, scopeStatus: "active", mode: "full_catalog", resumeIntraStep })
     },
     {
       providerCode,
       step: JOB_NAMES.KALSHI_SYNC_OI_FULL_CATALOG,
       mode: "full_catalog",
-      run: () => syncKalshiOpenInterest({ requestId, scopeStatus: "active", mode: "full_catalog" })
+      run: () => syncKalshiOpenInterest({ requestId, scopeStatus: "active", mode: "full_catalog", resumeIntraStep })
     },
     {
       providerCode,
@@ -823,102 +994,224 @@ export async function runFullCatalogResumePipeline(requestIdInput?: string): Pro
   const startedAt = Date.now();
   const invocationBudgetMs = env.FULL_CATALOG_RESUME_INVOCATION_BUDGET_MS;
   const deadline = startedAt + invocationBudgetMs;
-
-  let rowsUpserted = 0;
-  let rowsSkipped = 0;
-  let partials = 0;
-  let executedSteps = 0;
-
   let state = await loadFullCatalogResumeState(requestId);
-  const maxSteps = env.FULL_CATALOG_MAX_STEPS_PER_INVOCATION;
+  if (isFullCatalogCycleCompleted(state)) {
+    logger.info(
+      {
+        pipeline,
+        requestId,
+        cycleId: state.cycleId,
+        status: "completed"
+      },
+      "Full catalog cycle completed, resetting resume state"
+    );
 
-  while (executedSteps < maxSteps && Date.now() < deadline) {
-    const step = resolveCurrentFullCatalogStep(state, requestId);
-    if (!step) {
-      logger.info(
-        {
-          pipeline,
-          requestId,
-          cycleId: state.cycleId,
-          status: "completed"
-        },
-        "Full catalog cycle completed, resetting resume state"
-      );
-
-      state = createFullCatalogResumeState(new Date(), requestId);
-      await saveFullCatalogResumeState(state);
-      break;
-    }
-
-    state.lastRequestId = requestId;
-    state.lastStepStartedAt = new Date().toISOString();
-    state.lastStepFinishedAt = null;
-    state.updatedAt = state.lastStepStartedAt;
+    state = createFullCatalogResumeState(new Date(), requestId);
     await saveFullCatalogResumeState(state);
+  }
 
-    try {
-      const result = await runPipelineStep(requestId, pipeline, step);
-      rowsUpserted += result.rowsUpserted;
-      rowsSkipped += result.rowsSkipped;
-      if (result.partialReason) {
-        partials += 1;
+  const providers = [...PIPELINE_PROVIDERS];
+  const providerConcurrency = Math.max(1, Math.min(env.CRON_FULLCAT_PROVIDER_CONCURRENCY, providers.length));
+  const maxStepsPerProvider = Math.max(
+    1,
+    typeof process.env.FULL_CATALOG_MAX_STEPS_PER_PROVIDER_PER_INVOCATION === "string"
+      ? env.FULL_CATALOG_MAX_STEPS_PER_PROVIDER_PER_INVOCATION
+      : env.FULL_CATALOG_MAX_STEPS_PER_INVOCATION
+  );
+
+  let stateSaveChain = Promise.resolve();
+  const updateResumeState = async (mutator: (draft: FullCatalogResumeState) => void): Promise<void> => {
+    stateSaveChain = stateSaveChain.then(async () => {
+      mutator(state);
+      state.updatedAt = new Date().toISOString();
+      await saveFullCatalogResumeState(state);
+    });
+
+    await stateSaveChain;
+  };
+
+  const executedStepsByProvider: Record<ProviderCode, number> = {
+    polymarket: 0,
+    kalshi: 0
+  };
+
+  const counters = await runProvidersWithConcurrency(providers, providerConcurrency, async (providerCode) => {
+    const providerCounters: PipelineCounters = {
+      rowsUpserted: 0,
+      rowsSkipped: 0,
+      errors: 0,
+      partials: 0
+    };
+
+    let executedSteps = 0;
+    while (executedSteps < maxStepsPerProvider && Date.now() < deadline) {
+      const step = resolveCurrentFullCatalogStep(state, providerCode, requestId, true);
+      if (!step) {
+        await updateResumeState((draft) => {
+          const providerState = draft.providers[providerCode];
+          const stepNames = getFullCatalogStepNames(providerCode);
+          providerState.completed = true;
+          providerState.stepRetries = 0;
+          providerState.stepIndex = Math.max(providerState.stepIndex, stepNames.length);
+          providerState.currentStep = stepNames[stepNames.length - 1] ?? providerState.currentStep;
+        });
+        break;
       }
 
-      state.stepRetries = 0;
-      state.stepIndex += 1;
-      state.lastStepFinishedAt = new Date().toISOString();
-      state.updatedAt = state.lastStepFinishedAt;
-      await saveFullCatalogResumeState(state);
-      executedSteps += 1;
-    } catch (error) {
-      state.stepRetries += 1;
-      state.lastStepFinishedAt = new Date().toISOString();
-      state.updatedAt = state.lastStepFinishedAt;
-      await saveFullCatalogResumeState(state);
+      await updateResumeState((draft) => {
+        const providerState = draft.providers[providerCode];
+        providerState.lastRequestId = requestId;
+        providerState.lastStepStartedAt = new Date().toISOString();
+        providerState.lastStepFinishedAt = null;
+        providerState.currentStep = step.step;
+      });
 
-      if (state.stepRetries >= env.FULL_CATALOG_MAX_STEP_RETRIES) {
+      try {
+        const result = await runPipelineStep(requestId, pipeline, step);
+        providerCounters.rowsUpserted += result.rowsUpserted;
+        providerCounters.rowsSkipped += result.rowsSkipped;
+        if (result.partialReason || result.continueSameStep) {
+          providerCounters.partials += 1;
+        }
+
+        await updateResumeState((draft) => {
+          const providerState = draft.providers[providerCode];
+          providerState.stepRetries = 0;
+          providerState.lastStepFinishedAt = new Date().toISOString();
+
+          if (!result.continueSameStep) {
+            providerState.stepIndex += 1;
+          }
+
+          const stepNames = getFullCatalogStepNames(providerCode);
+          if (providerState.stepIndex >= stepNames.length) {
+            providerState.completed = true;
+            providerState.stepIndex = stepNames.length;
+            providerState.currentStep = stepNames[stepNames.length - 1]!;
+          } else {
+            providerState.completed = false;
+            providerState.currentStep = stepNames[providerState.stepIndex]!;
+          }
+        });
+
+        executedSteps += 1;
+        executedStepsByProvider[providerCode] += 1;
+      } catch (error) {
+        let skipStep = false;
+        let stepRetries = 0;
+        let skippedStepName: string | null = null;
+
+        await updateResumeState((draft) => {
+          const providerState = draft.providers[providerCode];
+          providerState.stepRetries += 1;
+          providerState.lastStepFinishedAt = new Date().toISOString();
+          stepRetries = providerState.stepRetries;
+          skipStep = providerState.stepRetries >= env.FULL_CATALOG_MAX_STEP_RETRIES;
+
+          if (skipStep) {
+            const stepNames = getFullCatalogStepNames(providerCode);
+            skippedStepName = providerState.currentStep;
+            providerState.stepRetries = 0;
+            providerState.stepIndex += 1;
+            if (providerState.stepIndex >= stepNames.length) {
+              providerState.completed = true;
+              providerState.stepIndex = stepNames.length;
+              providerState.currentStep = stepNames[stepNames.length - 1]!;
+            } else {
+              providerState.completed = false;
+              providerState.currentStep = stepNames[providerState.stepIndex]!;
+            }
+          }
+        });
+
+        if (skipStep) {
+          providerCounters.partials += 1;
+          executedSteps += 1;
+          executedStepsByProvider[providerCode] += 1;
+          logger.error(
+            {
+              pipeline,
+              requestId,
+              cycleId: state.cycleId,
+              provider: providerCode,
+              step: skippedStepName ?? step.step,
+              stepRetries,
+              maxStepRetries: env.FULL_CATALOG_MAX_STEP_RETRIES
+            },
+            "Full catalog resume reached step retry cap, skipping step"
+          );
+          continue;
+        }
+
+        providerCounters.errors += 1;
         logger.error(
           {
             pipeline,
             requestId,
             cycleId: state.cycleId,
-            provider: state.currentProvider,
-            step: state.currentStep,
-            stepRetries: state.stepRetries,
-            maxStepRetries: env.FULL_CATALOG_MAX_STEP_RETRIES
+            provider: providerCode,
+            step: step.step,
+            stepRetries,
+            maxStepRetries: env.FULL_CATALOG_MAX_STEP_RETRIES,
+            error
           },
-          "Full catalog resume reached step retry cap, skipping step"
+          "Full catalog resume step failed before retry cap"
         );
-
-        partials += 1;
-        state.stepRetries = 0;
-        state.stepIndex += 1;
-        state.updatedAt = new Date().toISOString();
-        await saveFullCatalogResumeState(state);
-        executedSteps += 1;
-        continue;
+        break;
       }
-
-      throw error;
     }
+
+    logger.info(
+      {
+        pipeline,
+        requestId,
+        cycleId: state.cycleId,
+        provider: providerCode,
+        rowsUpserted: providerCounters.rowsUpserted,
+        rowsSkipped: providerCounters.rowsSkipped,
+        partials: providerCounters.partials,
+        errors: providerCounters.errors,
+        executedSteps: executedStepsByProvider[providerCode],
+        status: providerCounters.errors > 0 ? "failed" : providerCounters.partials > 0 ? "partial_success" : "success"
+      },
+      "Full catalog resume provider summary"
+    );
+
+    return providerCounters;
+  });
+
+  await stateSaveChain;
+
+  if (isFullCatalogCycleCompleted(state)) {
+    logger.info(
+      {
+        pipeline,
+        requestId,
+        cycleId: state.cycleId,
+        status: "completed"
+      },
+      "Full catalog cycle completed, resetting resume state"
+    );
+
+    state = createFullCatalogResumeState(new Date(), requestId);
+    await saveFullCatalogResumeState(state);
   }
 
+  const baseSummary = summarizePipeline(counters);
   const timedOut = Date.now() >= deadline;
   const partialReasonParts: string[] = [];
-  if (partials > 0) {
-    partialReasonParts.push(`${partials} step(s) returned partial_success or were skipped after retry cap`);
+  if (baseSummary.partialReason) {
+    partialReasonParts.push(baseSummary.partialReason);
   }
   if (timedOut) {
     partialReasonParts.push("invocation budget reached");
   }
 
   const summary: JobRunResult = {
-    rowsUpserted,
-    rowsSkipped,
+    rowsUpserted: baseSummary.rowsUpserted,
+    rowsSkipped: baseSummary.rowsSkipped,
     partialReason: partialReasonParts.length > 0 ? partialReasonParts.join("; ") : null
   };
-
-  const nextStep = resolveCurrentFullCatalogStep(state, requestId);
 
   logger.info(
     {
@@ -926,12 +1219,15 @@ export async function runFullCatalogResumePipeline(requestIdInput?: string): Pro
       requestId,
       durationMs: Date.now() - startedAt,
       invocationBudgetMs,
-      executedSteps,
-      rowsUpserted,
-      rowsSkipped,
-      partials,
-      nextProvider: nextStep?.providerCode ?? null,
-      nextStep: nextStep?.step ?? null,
+      providerConcurrency,
+      maxStepsPerProvider,
+      executedStepsByProvider,
+      rowsUpserted: summary.rowsUpserted,
+      rowsSkipped: summary.rowsSkipped,
+      nextSteps: {
+        polymarket: getNextFullCatalogStepName(state, "polymarket"),
+        kalshi: getNextFullCatalogStepName(state, "kalshi")
+      },
       status: summary.partialReason ? "partial_success" : "success"
     },
     "Cron pipeline summary"

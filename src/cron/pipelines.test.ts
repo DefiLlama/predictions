@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { setTimeout as delay } from "node:timers/promises";
 import { describe, test } from "node:test";
 
-import { runProvidersWithConcurrency, summarizePipeline } from "./pipelines.js";
+import { JOB_NAMES } from "../jobs/names.js";
+import { migrateFullCatalogResumeStateV1ToV2, runProvidersWithConcurrency, summarizePipeline } from "./pipelines.js";
 
 describe("cron provider concurrency", () => {
   test("starts provider flows in parallel when concurrency > 1", async () => {
@@ -70,5 +71,32 @@ describe("summarizePipeline", () => {
     ]);
 
     assert.equal(summary.partialReason, "2 step(s) returned partial_success");
+  });
+});
+
+describe("full catalog resume state migration", () => {
+  test("migrates legacy v1 checkpoint to v2 provider states", () => {
+    const migrated = migrateFullCatalogResumeStateV1ToV2({
+      version: 1,
+      cycleId: "cycle-1",
+      cycleStartedAt: "2026-03-03T00:00:00.000Z",
+      cycleExpiresAt: "2026-03-04T00:00:00.000Z",
+      providerIndex: 1,
+      stepIndex: 3,
+      stepRetries: 2,
+      currentProvider: "kalshi",
+      currentStep: JOB_NAMES.KALSHI_SYNC_PRICES_FULL_CATALOG,
+      lastRequestId: "req-1",
+      lastStepStartedAt: "2026-03-03T00:10:00.000Z",
+      lastStepFinishedAt: "2026-03-03T00:11:00.000Z",
+      updatedAt: "2026-03-03T00:11:00.000Z"
+    });
+
+    assert.equal(migrated.version, 2);
+    assert.equal(migrated.providers.polymarket.completed, true);
+    assert.equal(migrated.providers.kalshi.stepIndex, 3);
+    assert.equal(migrated.providers.kalshi.stepRetries, 2);
+    assert.equal(migrated.providers.kalshi.currentStep, JOB_NAMES.KALSHI_SYNC_PRICES_FULL_CATALOG);
+    assert.equal(migrated.providers.kalshi.lastRequestId, "req-1");
   });
 });
