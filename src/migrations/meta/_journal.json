@@ -50,6 +50,13 @@
       "when": 1772539800000,
       "tag": "0006_market_platform_event_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1772569200000,
+      "tag": "0007_dashboard_query_indexes",
+      "breakpoints": true
     }
   ]
 }
