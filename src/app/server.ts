@@ -10,6 +10,7 @@ import {
   getDataFreshness,
   getDashboardMain,
   getDashboardTreemap,
+  getEventDetail,
   getIngestHealth,
   getMarketDetail,
   getMarketPriceHistory,
@@ -100,8 +101,19 @@ export async function createServer(): Promise<ReturnType<typeof Fastify>> {
     };
   });
 
-  app.get("/v1/dashboard/main", async () => {
-    const dashboard = await getDashboardMain();
+  app.get("/v1/dashboard/main", async (request, reply) => {
+    const query = request.query as {
+      provider?: string;
+    };
+
+    if (query.provider && !isProviderCode(query.provider)) {
+      return reply.status(400).send({ error: "Invalid provider. Use polymarket or kalshi." });
+    }
+
+    const dashboard = await getDashboardMain({
+      providerCode: query.provider as ProviderCode | undefined
+    });
+
     return {
       data: dashboard,
       timestamp: new Date().toISOString()
@@ -186,6 +198,20 @@ export async function createServer(): Promise<ReturnType<typeof Fastify>> {
     const detail = await getMarketDetail(marketUid);
     if (!detail) {
       return reply.status(404).send({ error: "Market not found" });
+    }
+
+    return {
+      data: detail,
+      timestamp: new Date().toISOString()
+    };
+  });
+
+  app.get("/v1/events/:eventUid", async (request, reply) => {
+    const { eventUid } = request.params as { eventUid: string };
+
+    const detail = await getEventDetail(eventUid);
+    if (!detail) {
+      return reply.status(404).send({ error: "Event not found" });
     }
 
     return {

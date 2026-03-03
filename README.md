@@ -109,12 +109,15 @@ npm test
 - `GET /v1/meta/category-quality`
 - `GET /v1/markets?provider=polymarket|kalshi&limit=&offset=`
 - `GET /v1/markets/:marketUid`
-- `GET /v1/dashboard/main`
+- `GET /v1/events/:eventUid`
+- `GET /v1/dashboard/main?provider=polymarket|kalshi`
 - `GET /v1/dashboard/treemap?provider=polymarket|kalshi&metric=volume24h|oi&status=all|active&groupBy=sector|providerCategory`
 
 ## Notes
 
 - Public market IDs are `provider:marketRef`.
+- Public event IDs are `provider:eventRef`.
 - Canonical probability scale in storage is `0..1`.
 - `ops.job_run_log` is the canonical run history (step-level + cron skip outcomes).
 - `ops.ingest_checkpoint` stores incremental windows and full-catalog cursor state.
+- `/v1/dashboard/main` now returns provider KPIs plus event-level rows with nested markets/instruments sourced from `core.market_scope`.

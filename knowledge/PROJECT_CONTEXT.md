@@ -299,12 +299,16 @@ Implemented endpoints:
 7. `GET /v1/meta/category-quality`: scoped/global unknown-rate and source-mix category quality metrics.
 8. `GET /v1/markets`: market list (optional provider filter + pagination).
 9. `GET /v1/markets/:marketUid`: market + instrument snapshot detail.
-10. `GET /v1/dashboard/main`: KPI/top mover/summary payload.
-11. `GET /v1/dashboard/treemap`: provider/category treemap aggregates (`metric=volume24h|oi`, `status=all|active`, `groupBy=sector|providerCategory`, optional provider filter).
+10. `GET /v1/events/:eventUid`: event detail + child markets with nested instrument snapshots.
+11. `GET /v1/dashboard/main`: provider KPIs + event-level payload (optional `provider=polymarket|kalshi`) with nested scoped markets/instruments.
+12. `GET /v1/dashboard/treemap`: provider/category treemap aggregates (`metric=volume24h|oi`, `status=all|active`, `groupBy=sector|providerCategory`, optional provider filter).
 
 Contract notes:
 1. `marketUid` is always `provider:marketRef`.
-2. Timestamps returned as ISO strings in UTC-compatible format.
+2. `eventUid` is always `provider:eventRef`.
+3. `/v1/markets/:marketUid` is market-only (event refs return 404); event-level aggregate pages use `/v1/events/:eventUid`.
+4. Timestamps returned as ISO strings in UTC-compatible format.
+5. `/v1/dashboard/main` is event-centric and sourced from `core.market_scope` rather than global market listings.
 
 ## 11. Data Quality, Verification, and Freshness
 Verification commands:

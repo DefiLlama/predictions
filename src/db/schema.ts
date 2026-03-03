@@ -78,6 +78,7 @@ export const market = core.table(
     uniqueIndex("market_platform_ref_uq").on(table.platformId, table.marketRef),
     uniqueIndex("market_uid_uq").on(table.marketUid),
     index("market_platform_idx").on(table.platformId),
+    index("market_platform_event_idx").on(table.platformId, table.eventId),
     index("market_status_idx").on(table.status)
   ]
 );
