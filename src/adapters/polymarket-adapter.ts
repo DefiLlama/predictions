@@ -377,6 +377,8 @@ export class PolymarketAdapter implements ProviderAdapter {
         if (!conditionId) {
           return null;
         }
+        const title = asString(raw.question);
+        const displayTitle = asString(raw.groupItemTitle) ?? title;
 
         return {
           marketRef: this.normalizeMarketRef(conditionId),
@@ -384,7 +386,8 @@ export class PolymarketAdapter implements ProviderAdapter {
             const eventRef = extractPolymarketEventRef(raw);
             return eventRef ? this.normalizeMarketRef(eventRef) : null;
           })(),
-          title: asString(raw.question),
+          title,
+          displayTitle,
           status: normalizeStatus(raw.active, raw.closed, raw.archived),
           closeTime: asDate(raw.endDate),
           volume24h: asNumber(raw.volume24hr),

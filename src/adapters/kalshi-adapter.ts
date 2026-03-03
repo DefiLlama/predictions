@@ -419,11 +419,15 @@ export class KalshiAdapter implements ProviderAdapter {
         if (!ticker) {
           return null;
         }
+        const title = asString(raw.title);
+        const displayTitle =
+          asString(raw.yes_sub_title) ?? asString(raw.yes_title) ?? asString(raw.subtitle) ?? asString(raw.sub_title) ?? title;
 
         return {
           marketRef: this.normalizeMarketRef(ticker),
           eventRef: eventTicker ? this.normalizeMarketRef(eventTicker) : null,
-          title: asString(raw.title),
+          title,
+          displayTitle,
           status: normalizeStatus(asString(raw.status)),
           closeTime: asDate(raw.close_time) ?? asDate(raw.expiration_time),
           volume24h: asNumber(raw.volume_24h_fp) ?? asNumber(raw.volume_24h),

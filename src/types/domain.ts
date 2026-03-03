@@ -16,6 +16,7 @@ export interface NormalizedMarket {
   marketRef: string;
   eventRef: string | null;
   title: string | null;
+  displayTitle: string | null;
   status: MarketStatus;
   closeTime: Date | null;
   volume24h: number | null;

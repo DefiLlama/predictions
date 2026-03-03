@@ -43,6 +43,7 @@ export interface DashboardMarket {
   providerCode: string;
   marketRef: string;
   title: string | null;
+  displayTitle: string | null;
   status: string;
   closeTime: string | null;
   volume24h: string | null;
@@ -95,6 +96,7 @@ export interface MarketSummary {
   providerCode: string;
   marketRef: string;
   title: string | null;
+  displayTitle: string | null;
   status: string;
   closeTime: string | null;
   volume24h: string | null;
@@ -141,6 +143,7 @@ export interface EventMarketDetail {
   providerCode: string;
   marketRef: string;
   title: string | null;
+  displayTitle: string | null;
   status: string;
   closeTime: string | null;
   volume24h: string | null;
@@ -180,6 +183,7 @@ export interface PriceHistoryData {
     providerCode: string;
     marketRef: string;
     title: string | null;
+    displayTitle: string | null;
     status: string;
     closeTime: string | null;
   };
@@ -193,6 +197,7 @@ export interface EventPriceSeries {
   marketUid: string;
   marketRef: string;
   marketTitle: string | null;
+  marketDisplayTitle: string | null;
   instrumentRef: string;
   outcomeLabel: string | null;
   points: OhlcPoint[];

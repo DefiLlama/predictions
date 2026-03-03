@@ -66,6 +66,7 @@ export const market = core.table(
     marketRef: varchar("market_ref", { length: 256 }).notNull(),
     marketUid: varchar("market_uid", { length: 320 }).notNull(),
     title: text("title"),
+    displayTitle: text("display_title"),
     status: varchar("status", { length: 64 }).notNull(),
     closeTime: timestamp("close_time", { withTimezone: true }),
     volume24h: numeric("volume_24h", { precision: 24, scale: 6 }),

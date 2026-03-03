@@ -37,7 +37,7 @@ export default async function EventDetailPage({
   const chartInstruments =
     topSeries.map((series) => ({
       instrumentRef: series.instrumentRef,
-      outcomeLabel: series.marketTitle ?? series.marketRef,
+      outcomeLabel: series.marketDisplayTitle ?? series.marketTitle ?? series.marketRef,
       outcomeIndex: null,
       points: series.points,
     }));
@@ -115,7 +115,7 @@ export default async function EventDetailPage({
                     href={uidToPath(mkt.marketUid, "/markets")}
                     className="text-sm font-medium text-[var(--text-primary)] hover:text-[var(--color-primary)] transition-colors"
                   >
-                    {mkt.title ?? mkt.marketRef}
+                    {mkt.displayTitle ?? mkt.title ?? mkt.marketRef}
                   </Link>
                   <div className="flex items-center gap-3 shrink-0 text-xs text-[var(--text-tertiary)]">
                     <span>{formatUsd(mkt.volume24h)} vol</span>

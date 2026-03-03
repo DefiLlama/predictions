@@ -375,6 +375,7 @@ export async function listMarkets(params: {
     providerCode: string;
     marketRef: string;
     title: string | null;
+    displayTitle: string | null;
     status: string;
     closeTime: Date | null;
     volume24h: string | null;
@@ -387,6 +388,7 @@ export async function listMarkets(params: {
       providerCode: platform.code,
       marketRef: market.marketRef,
       title: market.title,
+      displayTitle: market.displayTitle,
       status: market.status,
       closeTime: market.closeTime,
       volume24h: market.volume24h,
@@ -411,6 +413,7 @@ export async function getMarketDetail(marketUid: string): Promise<{
     providerCode: string;
     marketRef: string;
     title: string | null;
+    displayTitle: string | null;
     status: string;
     closeTime: Date | null;
     volume24h: string | null;
@@ -444,6 +447,7 @@ export async function getMarketDetail(marketUid: string): Promise<{
       providerCode: platform.code,
       marketRef: market.marketRef,
       title: market.title,
+      displayTitle: market.displayTitle,
       status: market.status,
       closeTime: market.closeTime,
       volume24h: market.volume24h,
@@ -518,6 +522,7 @@ export async function getMarketDetail(marketUid: string): Promise<{
       providerCode: marketRow.providerCode,
       marketRef: marketRow.marketRef,
       title: marketRow.title,
+      displayTitle: marketRow.displayTitle,
       status: marketRow.status,
       closeTime: marketRow.closeTime,
       volume24h: marketRow.volume24h,
@@ -563,6 +568,7 @@ type EventMarketDetail = {
   providerCode: string;
   marketRef: string;
   title: string | null;
+  displayTitle: string | null;
   status: string;
   closeTime: Date | null;
   volume24h: string | null;
@@ -638,6 +644,7 @@ export async function getEventDetail(eventUid: string): Promise<{
       providerCode: platform.code,
       marketRef: market.marketRef,
       title: market.title,
+      displayTitle: market.displayTitle,
       status: market.status,
       closeTime: market.closeTime,
       volume24h: market.volume24h,
@@ -787,6 +794,7 @@ export async function getEventDetail(eventUid: string): Promise<{
     providerCode: row.providerCode,
     marketRef: row.marketRef,
     title: row.title,
+    displayTitle: row.displayTitle,
     status: row.status,
     closeTime: row.closeTime,
     volume24h: row.volume24h,
@@ -836,6 +844,7 @@ export async function getEventPriceHistory(params: {
     marketUid: string;
     marketRef: string;
     marketTitle: string | null;
+    marketDisplayTitle: string | null;
     instrumentRef: string;
     outcomeLabel: string | null;
     points: Array<{
@@ -883,7 +892,8 @@ export async function getEventPriceHistory(params: {
       id: market.id,
       marketUid: market.marketUid,
       marketRef: market.marketRef,
-      title: market.title
+      title: market.title,
+      displayTitle: market.displayTitle
     })
     .from(market)
     .where(eq(market.eventId, eventRow.id))
@@ -1045,6 +1055,7 @@ export async function getEventPriceHistory(params: {
         marketUid: row.marketUid,
         marketRef: row.marketRef,
         marketTitle: row.title,
+        marketDisplayTitle: row.displayTitle,
         instrumentRef: yesInstrument.instrumentRef,
         outcomeLabel: yesInstrument.outcomeLabel,
         points
@@ -1111,6 +1122,7 @@ export async function getMarketPriceHistory(params: {
     providerCode: string;
     marketRef: string;
     title: string | null;
+    displayTitle: string | null;
     status: string;
     closeTime: Date | null;
   };
@@ -1147,6 +1159,7 @@ export async function getMarketPriceHistory(params: {
       providerCode: platform.code,
       marketRef: market.marketRef,
       title: market.title,
+      displayTitle: market.displayTitle,
       status: market.status,
       closeTime: market.closeTime
     })
@@ -1218,6 +1231,7 @@ export async function getMarketPriceHistory(params: {
       providerCode: marketRow.providerCode,
       marketRef: marketRow.marketRef,
       title: marketRow.title,
+      displayTitle: marketRow.displayTitle,
       status: marketRow.status,
       closeTime: marketRow.closeTime
     },
@@ -1266,6 +1280,7 @@ type DashboardMainMarket = {
   providerCode: string;
   marketRef: string;
   title: string | null;
+  displayTitle: string | null;
   status: string;
   closeTime: Date | null;
   volume24h: string | null;
@@ -1433,6 +1448,7 @@ export async function getDashboardMain(params?: {
         m.market_uid,
         m.market_ref,
         m.title,
+        m.display_title,
         m.status,
         m.close_time,
         m.volume_24h,
@@ -1448,6 +1464,7 @@ export async function getDashboardMain(params?: {
       sm.market_uid as "marketUid",
       sm.market_ref as "marketRef",
       sm.title as title,
+      sm.display_title as "displayTitle",
       sm.status as status,
       sm.close_time as "closeTime",
       sm.volume_24h::text as "volume24h",
@@ -1469,6 +1486,7 @@ export async function getDashboardMain(params?: {
     marketUid: string;
     marketRef: string;
     title: string | null;
+    displayTitle: string | null;
     status: string;
     closeTime: Date | string | null;
     volume24h: string | null;
@@ -1492,6 +1510,7 @@ export async function getDashboardMain(params?: {
       providerCode: row.providerCode,
       marketRef: row.marketRef,
       title: row.title,
+      displayTitle: row.displayTitle,
       status: row.status,
       closeTime: parseDateValue(row.closeTime),
       volume24h: row.volume24h,
