@@ -543,10 +543,12 @@ type EventInstrumentDetail = {
   askDepthTop5: string | null;
 };
 
+function isYesInstrument(item: { instrumentRef: string; outcomeLabel: string | null }): boolean {
+  return item.instrumentRef.toUpperCase().endsWith(":YES") || item.outcomeLabel?.trim().toLowerCase() === "yes";
+}
+
 function pickYesPrice(instruments: EventInstrumentDetail[]): number | null {
-  const yesInstrument =
-    instruments.find((item) => item.instrumentRef.toUpperCase().endsWith(":YES")) ??
-    instruments.find((item) => item.outcomeLabel?.trim().toLowerCase() === "yes");
+  const yesInstrument = instruments.find((item) => isYesInstrument(item));
 
   if (!yesInstrument || yesInstrument.latestPrice === null) {
     return null;
@@ -808,6 +810,293 @@ export async function getEventDetail(eventUid: string): Promise<{
       status: eventRow.status
     },
     markets
+  };
+}
+
+export async function getEventPriceHistory(params: {
+  eventUid: string;
+  from?: Date;
+  to?: Date;
+  interval: "1h";
+}): Promise<{
+  event: {
+    eventUid: string;
+    providerCode: string;
+    eventRef: string;
+    title: string | null;
+    category: string | null;
+    startTime: Date | null;
+    endTime: Date | null;
+    status: string | null;
+  };
+  interval: "1h";
+  from: string;
+  to: string;
+  series: Array<{
+    marketUid: string;
+    marketRef: string;
+    marketTitle: string | null;
+    instrumentRef: string;
+    outcomeLabel: string | null;
+    points: Array<{
+      ts: string;
+      price: string;
+      open?: string;
+      high?: string;
+      low?: string;
+      close?: string;
+      points?: number;
+    }>;
+  }>;
+} | null> {
+  const parsed = parseEventUid(params.eventUid);
+  if (!parsed) {
+    return null;
+  }
+
+  const to = params.to ?? new Date();
+  const from = params.from ?? new Date(to.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+  const eventRows = await db
+    .select({
+      id: event.id,
+      providerCode: platform.code,
+      eventRef: event.eventRef,
+      title: event.title,
+      category: event.category,
+      startTime: event.startTime,
+      endTime: event.endTime,
+      status: event.status
+    })
+    .from(event)
+    .innerJoin(platform, eq(platform.id, event.platformId))
+    .where(and(eq(platform.code, parsed.providerCode), eq(event.eventRef, parsed.eventRef)))
+    .limit(1);
+
+  const eventRow = eventRows[0];
+  if (!eventRow) {
+    return null;
+  }
+
+  const marketRows = await db
+    .select({
+      id: market.id,
+      marketUid: market.marketUid,
+      marketRef: market.marketRef,
+      title: market.title
+    })
+    .from(market)
+    .where(eq(market.eventId, eventRow.id))
+    .orderBy(asc(market.marketRef));
+
+  if (marketRows.length === 0) {
+    return {
+      event: {
+        eventUid: `${eventRow.providerCode}:${eventRow.eventRef}`,
+        providerCode: eventRow.providerCode,
+        eventRef: eventRow.eventRef,
+        title: eventRow.title,
+        category: eventRow.category,
+        startTime: eventRow.startTime,
+        endTime: eventRow.endTime,
+        status: eventRow.status
+      },
+      interval: params.interval,
+      from: from.toISOString(),
+      to: to.toISOString(),
+      series: []
+    };
+  }
+
+  const marketIdList = marketRows.map((row) => row.id);
+  const instrumentRows = await db
+    .select({
+      id: instrument.id,
+      marketId: instrument.marketId,
+      instrumentRef: instrument.instrumentRef,
+      outcomeLabel: instrument.outcomeLabel,
+      outcomeIndex: instrument.outcomeIndex
+    })
+    .from(instrument)
+    .where(inArray(instrument.marketId, marketIdList))
+    .orderBy(asc(instrument.outcomeIndex), asc(instrument.instrumentRef));
+
+  const instrumentsByMarket = new Map<
+    number,
+    Array<{
+      id: number;
+      instrumentRef: string;
+      outcomeLabel: string | null;
+    }>
+  >();
+
+  for (const item of instrumentRows) {
+    const existing = instrumentsByMarket.get(item.marketId);
+    const detail = {
+      id: item.id,
+      instrumentRef: item.instrumentRef,
+      outcomeLabel: item.outcomeLabel
+    };
+    if (existing) {
+      existing.push(detail);
+    } else {
+      instrumentsByMarket.set(item.marketId, [detail]);
+    }
+  }
+
+  const yesInstrumentByMarket = new Map<
+    number,
+    {
+      id: number;
+      instrumentRef: string;
+      outcomeLabel: string | null;
+    }
+  >();
+
+  for (const row of marketRows) {
+    const yesInstrument = (instrumentsByMarket.get(row.id) ?? []).find((item) => isYesInstrument(item));
+    if (yesInstrument) {
+      yesInstrumentByMarket.set(row.id, yesInstrument);
+    }
+  }
+
+  const yesInstrumentIds = Array.from(yesInstrumentByMarket.values()).map((item) => item.id);
+  if (yesInstrumentIds.length === 0) {
+    return {
+      event: {
+        eventUid: `${eventRow.providerCode}:${eventRow.eventRef}`,
+        providerCode: eventRow.providerCode,
+        eventRef: eventRow.eventRef,
+        title: eventRow.title,
+        category: eventRow.category,
+        startTime: eventRow.startTime,
+        endTime: eventRow.endTime,
+        status: eventRow.status
+      },
+      interval: params.interval,
+      from: from.toISOString(),
+      to: to.toISOString(),
+      series: []
+    };
+  }
+
+  type HistoryPointRow = {
+    instrumentId: number | string;
+    ts: Date | string;
+    price: string;
+    open?: string;
+    high?: string;
+    low?: string;
+    close?: string;
+    points?: number;
+  };
+
+  const result = await db.execute(sql`
+    select
+      mp.instrument_id as "instrumentId",
+      mp.bucket_ts as ts,
+      mp.close::text as price,
+      mp.open::text as open,
+      mp.high::text as high,
+      mp.low::text as low,
+      mp.close::text as close,
+      mp.points as points
+    from agg.market_price_1h mp
+    where mp.instrument_id in (${sql.join(yesInstrumentIds.map((id) => sql`${id}`), sql`,`)})
+      and mp.bucket_ts >= ${from}
+      and mp.bucket_ts <= ${to}
+    order by mp.instrument_id asc, mp.bucket_ts asc
+  `);
+
+  const historyRows = result.rows as HistoryPointRow[];
+  const historyByInstrument = new Map<number, HistoryPointRow[]>();
+  for (const row of historyRows) {
+    const instrumentId = Number(row.instrumentId);
+    const existing = historyByInstrument.get(instrumentId);
+    if (existing) {
+      existing.push(row);
+    } else {
+      historyByInstrument.set(instrumentId, [row]);
+    }
+  }
+
+  const series = marketRows
+    .map((row) => {
+      const yesInstrument = yesInstrumentByMarket.get(row.id);
+      if (!yesInstrument) {
+        return null;
+      }
+
+      const points = (historyByInstrument.get(yesInstrument.id) ?? []).map((point) => ({
+        ts: (point.ts instanceof Date ? point.ts : new Date(point.ts)).toISOString(),
+        price: point.price,
+        open: point.open,
+        high: point.high,
+        low: point.low,
+        close: point.close,
+        points: point.points
+      }));
+
+      if (points.length === 0) {
+        return null;
+      }
+
+      return {
+        marketUid: row.marketUid,
+        marketRef: row.marketRef,
+        marketTitle: row.title,
+        instrumentRef: yesInstrument.instrumentRef,
+        outcomeLabel: yesInstrument.outcomeLabel,
+        points
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => item !== null);
+
+  const getLatestClose = (item: (typeof series)[number]): number | null => {
+    if (item.points.length === 0) {
+      return null;
+    }
+
+    const latestPoint = item.points[item.points.length - 1];
+    const parsed = Number(latestPoint.close ?? latestPoint.price);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  series.sort((a, b) => {
+    const aLatest = getLatestClose(a);
+    const bLatest = getLatestClose(b);
+
+    if (aLatest === null && bLatest === null) {
+      return a.marketRef.localeCompare(b.marketRef);
+    }
+    if (aLatest === null) {
+      return 1;
+    }
+    if (bLatest === null) {
+      return -1;
+    }
+    if (aLatest !== bLatest) {
+      return bLatest - aLatest;
+    }
+
+    return a.marketRef.localeCompare(b.marketRef);
+  });
+
+  return {
+    event: {
+      eventUid: `${eventRow.providerCode}:${eventRow.eventRef}`,
+      providerCode: eventRow.providerCode,
+      eventRef: eventRow.eventRef,
+      title: eventRow.title,
+      category: eventRow.category,
+      startTime: eventRow.startTime,
+      endTime: eventRow.endTime,
+      status: eventRow.status
+    },
+    interval: params.interval,
+    from: from.toISOString(),
+    to: to.toISOString(),
+    series
   };
 }
 

@@ -11,6 +11,7 @@ import {
   getDashboardMain,
   getDashboardTreemap,
   getEventDetail,
+  getEventPriceHistory,
   getIngestHealth,
   getMarketDetail,
   getMarketPriceHistory,
@@ -216,6 +217,47 @@ export async function createServer(): Promise<ReturnType<typeof Fastify>> {
 
     return {
       data: detail,
+      timestamp: new Date().toISOString()
+    };
+  });
+
+  app.get("/v1/events/:eventUid/price-history", async (request, reply) => {
+    const { eventUid } = request.params as { eventUid: string };
+    const query = request.query as {
+      from?: string;
+      to?: string;
+      interval?: string;
+    };
+
+    const interval = query.interval ?? "1h";
+    if (interval !== "1h") {
+      return reply.status(400).send({ error: "Invalid interval. Only 1h is supported." });
+    }
+
+    const to = query.to ? new Date(query.to) : new Date();
+    const from = query.from ? new Date(query.from) : new Date(to.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+      return reply.status(400).send({ error: "Invalid from/to datetime. Use ISO-8601 timestamps." });
+    }
+
+    if (from > to) {
+      return reply.status(400).send({ error: "Invalid range: from must be less than or equal to to." });
+    }
+
+    const history = await getEventPriceHistory({
+      eventUid,
+      from,
+      to,
+      interval: "1h"
+    });
+
+    if (!history) {
+      return reply.status(404).send({ error: "Event not found" });
+    }
+
+    return {
+      data: history,
       timestamp: new Date().toISOString()
     };
   });

@@ -1,4 +1,9 @@
 node_modules/
 dist/
 .env
+.env.local
 .DS_Store
+
+# Next.js
+frontend/.next/
+frontend/out/
