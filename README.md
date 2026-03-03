@@ -94,7 +94,7 @@ npm test
 
 ## Ingestion Modes
 
-- `topN_live`: `core.market_scope`-based prioritized ingestion, designed for 5-minute cadence.
+- `topN_live`: `core.market_scope`-based prioritized ingestion, designed for 5-minute cadence with seed top-N event-expanded scope selection.
 - `full_catalog`: active-market full-universe ingestion using batched selectors from `core.market`/`core.instrument`, designed for low-frequency cadence.
 - `full_catalog_resume`: full-catalog state machine that checkpoints provider/step progress (`ops.ingest_checkpoint`) and resumes from the latest step on the next invocation.
 

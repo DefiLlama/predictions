@@ -199,7 +199,7 @@ async function runPolymarketMetadataFlow(requestId: string, forceBackfill = fals
       jobName: JOB_NAMES.MARKET_RELINK_EVENTS,
       requestId
     },
-    () => relinkMarketEvents("polymarket", { requestId, maxMarkets: env.MARKET_RELINK_MAX_MARKETS_PER_RUN })
+    () => relinkMarketEvents("polymarket", { requestId, target: "all", maxMarkets: null })
   );
 
   await runLoggedStep(
@@ -228,7 +228,7 @@ async function runKalshiMetadataFlow(requestId: string): Promise<void> {
       jobName: JOB_NAMES.MARKET_RELINK_EVENTS,
       requestId
     },
-    () => relinkMarketEvents("kalshi", { requestId, maxMarkets: env.MARKET_RELINK_MAX_MARKETS_PER_RUN })
+    () => relinkMarketEvents("kalshi", { requestId, target: "all", maxMarkets: null })
   );
 
   await runLoggedStep(
@@ -444,7 +444,7 @@ async function main(): Promise<void> {
       for (const providerCode of ["polymarket", "kalshi"] satisfies ProviderCode[]) {
         await runLoggedStep(
           { providerCode, jobName: JOB_NAMES.MARKET_RELINK_EVENTS, requestId },
-          () => relinkMarketEvents(providerCode, { requestId, maxMarkets: env.MARKET_RELINK_MAX_MARKETS_PER_RUN })
+          () => relinkMarketEvents(providerCode, { requestId, target: "all", maxMarkets: null })
         );
       }
       return;

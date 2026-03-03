@@ -21,7 +21,7 @@ interface SyncOptions {
 
 interface RelinkOptions {
   requestId?: string;
-  maxMarkets?: number;
+  maxMarkets?: number | null;
   target?: "scope" | "all";
 }
 
@@ -601,96 +601,170 @@ function resetKalshiMetadataCursor(cycle: number): KalshiMetadataCursor {
   };
 }
 
+interface RelinkCandidateRow {
+  marketId: number;
+  rawJson: Record<string, unknown>;
+}
+
+export function resolveRelinkRunLimit(maxMarkets: RelinkOptions["maxMarkets"]): number | null {
+  if (maxMarkets === null) {
+    return null;
+  }
+
+  if (typeof maxMarkets === "number" && Number.isFinite(maxMarkets) && maxMarkets > 0) {
+    return Math.floor(maxMarkets);
+  }
+
+  return env.MARKET_RELINK_MAX_MARKETS_PER_RUN;
+}
+
+export function resolveRelinkBatchSize(runLimit: number | null): number {
+  const configuredBatchSize = Math.max(1, env.MARKET_RELINK_MAX_MARKETS_PER_RUN);
+  if (runLimit === null) {
+    return configuredBatchSize;
+  }
+
+  return Math.max(1, Math.min(configuredBatchSize, runLimit));
+}
+
+async function listRelinkCandidateRows(params: {
+  platformId: number;
+  target: "scope" | "all";
+  afterMarketId: number;
+  limit: number;
+}): Promise<RelinkCandidateRow[]> {
+  if (params.target === "scope") {
+    return db
+      .select({
+        marketId: market.id,
+        rawJson: market.rawJson
+      })
+      .from(marketScope)
+      .innerJoin(market, eq(market.id, marketScope.marketId))
+      .where(and(eq(marketScope.platformId, params.platformId), sql`${market.eventId} is null`, sql`${market.id} > ${params.afterMarketId}`))
+      .orderBy(market.id)
+      .limit(params.limit);
+  }
+
+  return db
+    .select({
+      marketId: market.id,
+      rawJson: market.rawJson
+    })
+    .from(market)
+    .where(and(eq(market.platformId, params.platformId), sql`${market.eventId} is null`, sql`${market.id} > ${params.afterMarketId}`))
+    .orderBy(market.id)
+    .limit(params.limit);
+}
+
 export async function relinkMarketEvents(providerCode: ProviderCode, options?: RelinkOptions): Promise<JobRunResult> {
   const platformId = await getPlatformId(providerCode);
   const adapter = getAdapter(providerCode);
-  const maxMarkets = options?.maxMarkets ?? env.MARKET_RELINK_MAX_MARKETS_PER_RUN;
+  const runLimit = resolveRelinkRunLimit(options?.maxMarkets);
+  const batchSize = resolveRelinkBatchSize(runLimit);
   const target = options?.target ?? "all";
-
-  const candidateRows =
-    target === "scope"
-      ? await db
-          .select({
-            marketId: market.id,
-            rawJson: market.rawJson
-          })
-          .from(marketScope)
-          .innerJoin(market, eq(market.id, marketScope.marketId))
-          .where(and(eq(marketScope.platformId, platformId), sql`${market.eventId} is null`))
-          .orderBy(market.id)
-          .limit(maxMarkets)
-      : await db
-          .select({
-            marketId: market.id,
-            rawJson: market.rawJson
-          })
-          .from(market)
-          .where(and(eq(market.platformId, platformId), sql`${market.eventId} is null`))
-          .orderBy(market.id)
-          .limit(maxMarkets);
-
-  if (candidateRows.length === 0) {
-    await setCheckpoint(providerCode, "market:relink:events", {
-      lastRunAt: new Date().toISOString(),
-      requestId: options?.requestId ?? null,
-      scanned: 0,
-      linked: 0,
-      unresolved: 0,
-      remainingNullEventId: 0
-    });
-    return { rowsUpserted: 0, rowsSkipped: 0 };
-  }
-
-  const marketToEventRef = new Map<number, string>();
-  const eventRefs: string[] = [];
-
-  for (const row of candidateRows) {
-    const extracted = extractEventRefFromMarketRaw(providerCode, row.rawJson, adapter.normalizeMarketRef.bind(adapter));
-    if (!extracted) {
-      continue;
-    }
-    marketToEventRef.set(row.marketId, extracted);
-    eventRefs.push(extracted);
-  }
-
-  const eventIdMap = await loadEventIdMap(platformId, eventRefs);
-  const uniqueEventRefs = Array.from(new Set(eventRefs));
-  const missingEventRefs = uniqueEventRefs.filter((eventRef) => !eventIdMap.has(eventRef));
-
+  let cursorMarketId = 0;
+  let scanned = 0;
+  let linked = 0;
+  let unresolved = 0;
   let fallbackEventsFetched = 0;
+  const extractedEventRefs = new Set<string>();
+  const missingEventRefs = new Set<string>();
+  const fallbackAttemptedEventRefs = new Set<string>();
+  const eventIdCache = new Map<string, number>();
+  let fallbackRemainingBudget = providerCode === "kalshi" ? env.KALSHI_EVENT_FALLBACK_MAX_PER_RUN : 0;
 
-  if (providerCode === "kalshi" && missingEventRefs.length > 0 && adapter instanceof KalshiAdapter) {
-    const fallbackTargets = missingEventRefs.slice(0, env.KALSHI_EVENT_FALLBACK_MAX_PER_RUN);
-    const fallbackEvents = await adapter.listEventsByTickers(fallbackTargets);
-    fallbackEventsFetched = fallbackEvents.length;
+  while (true) {
+    const remainingCapacity = runLimit === null ? batchSize : Math.min(batchSize, runLimit - scanned);
+    if (remainingCapacity <= 0) {
+      break;
+    }
 
-    if (fallbackEvents.length > 0) {
-      await upsertProviderMetadata({
-        providerCode,
-        events: fallbackEvents,
-        markets: [],
-        instruments: [],
-        metadataTimestamp: new Date()
-      });
+    const candidateRows = await listRelinkCandidateRows({
+      platformId,
+      target,
+      afterMarketId: cursorMarketId,
+      limit: remainingCapacity
+    });
 
-      const fallbackEventIdMap = await loadEventIdMap(platformId, fallbackTargets);
-      for (const [eventRef, eventId] of fallbackEventIdMap) {
-        eventIdMap.set(eventRef, eventId);
+    if (candidateRows.length === 0) {
+      break;
+    }
+
+    cursorMarketId = candidateRows[candidateRows.length - 1]!.marketId;
+    scanned += candidateRows.length;
+
+    const marketToEventRef = new Map<number, string>();
+    for (const row of candidateRows) {
+      const extracted = extractEventRefFromMarketRaw(providerCode, row.rawJson, adapter.normalizeMarketRef.bind(adapter));
+      if (!extracted) {
+        continue;
+      }
+
+      extractedEventRefs.add(extracted);
+      marketToEventRef.set(row.marketId, extracted);
+    }
+
+    const refsMissingInCache = Array.from(new Set(marketToEventRef.values())).filter((eventRef) => !eventIdCache.has(eventRef));
+    if (refsMissingInCache.length > 0) {
+      const loaded = await loadEventIdMap(platformId, refsMissingInCache);
+      for (const [eventRef, eventId] of loaded) {
+        eventIdCache.set(eventRef, eventId);
       }
     }
-  }
 
-  const links: Array<{ marketId: number; eventId: number }> = [];
+    const batchMissingEventRefs = refsMissingInCache.filter((eventRef) => !eventIdCache.has(eventRef));
+    for (const eventRef of batchMissingEventRefs) {
+      missingEventRefs.add(eventRef);
+    }
 
-  for (const [marketId, eventRef] of marketToEventRef) {
-    const eventId = eventIdMap.get(eventRef);
-    if (eventId) {
-      links.push({ marketId, eventId });
+    if (providerCode === "kalshi" && batchMissingEventRefs.length > 0 && adapter instanceof KalshiAdapter && fallbackRemainingBudget > 0) {
+      const fallbackTargets = batchMissingEventRefs
+        .filter((eventRef) => !fallbackAttemptedEventRefs.has(eventRef))
+        .slice(0, fallbackRemainingBudget);
+
+      for (const eventRef of fallbackTargets) {
+        fallbackAttemptedEventRefs.add(eventRef);
+      }
+
+      if (fallbackTargets.length > 0) {
+        fallbackRemainingBudget -= fallbackTargets.length;
+        const fallbackEvents = await adapter.listEventsByTickers(fallbackTargets);
+        fallbackEventsFetched += fallbackEvents.length;
+
+        if (fallbackEvents.length > 0) {
+          await upsertProviderMetadata({
+            providerCode,
+            events: fallbackEvents,
+            markets: [],
+            instruments: [],
+            metadataTimestamp: new Date()
+          });
+
+          const fallbackEventIdMap = await loadEventIdMap(platformId, fallbackTargets);
+          for (const [eventRef, eventId] of fallbackEventIdMap) {
+            eventIdCache.set(eventRef, eventId);
+          }
+        }
+      }
+    }
+
+    const links: Array<{ marketId: number; eventId: number }> = [];
+    for (const [marketId, eventRef] of marketToEventRef) {
+      const eventId = eventIdCache.get(eventRef);
+      if (eventId) {
+        links.push({ marketId, eventId });
+      }
+    }
+
+    const linkedBatch = await applyMarketEventLinks(links, new Date());
+    linked += linkedBatch;
+    unresolved += candidateRows.length - linkedBatch;
+
+    if (candidateRows.length < remainingCapacity) {
+      break;
     }
   }
-
-  const linked = await applyMarketEventLinks(links, new Date());
-  const unresolved = candidateRows.length - linked;
 
   const remaining =
     target === "scope"
@@ -714,9 +788,9 @@ export async function relinkMarketEvents(providerCode: ProviderCode, options?: R
     lastRunAt: new Date().toISOString(),
     requestId: options?.requestId ?? null,
     target,
-    scanned: candidateRows.length,
-    extractedEventRefs: uniqueEventRefs.length,
-    missingEventRefs: missingEventRefs.length,
+    scanned,
+    extractedEventRefs: extractedEventRefs.size,
+    missingEventRefs: missingEventRefs.size,
     fallbackEventsFetched,
     linked,
     unresolved,

@@ -252,7 +252,7 @@ Job write targets:
 1. `polymarket:sync:metadata` -> `core.event`, `core.market`, `core.instrument`, checkpoint update in `ops.ingest_checkpoint`.
 2. `polymarket:sync:metadata:backfill_full` -> same as metadata, with resumable cursor state in `ops.ingest_checkpoint`.
 3. `kalshi:sync:metadata` -> `core.event`, `core.market`, `core.instrument`, checkpoint update in `ops.ingest_checkpoint`.
-4. `scope:rebuild` -> rewrites provider rows in `core.market_scope`.
+4. `scope:rebuild` -> rewrites provider rows in `core.market_scope` using seed top-N markets and event-expanded sibling markets.
 5. `analytics:category:assign:markets` -> upsert into `core.category_dim`, `core.provider_category_dim`, `core.provider_category_map`, and `core.market_category_assignment`.
 6. `polymarket:sync:prices` and `kalshi:sync:prices` -> upsert into `raw.price_point`.
 7. `polymarket:sync:orderbook` and `kalshi:sync:orderbook` -> upsert into `raw.orderbook_top`.
@@ -267,11 +267,11 @@ Cadence:
 1. `cron:topn-live` (recommended every 5 minutes):
 - mode: `topN_live`
 - scope source: `core.market_scope`
-- steps per provider: prices, orderbook, trades, oi (`scopeStatus=active`)
+- steps per provider: metadata, market-event relink (`target=all`, unbounded), scope rebuild, prices, orderbook, trades, oi (`scopeStatus=active`)
 2. `cron:full-catalog` (recommended every 4 hours):
 - mode: `full_catalog`
 - scope source: active markets from `core.market`/`core.instrument` with cursorized batch selection
-- steps per provider: metadata, market-event relink, scope rebuild, full-catalog prices/orderbook/trades/oi, category assignment, provider-category rollup, hourly price/liquidity rollups
+- steps per provider: metadata, market-event relink (`target=all`, unbounded), scope rebuild, full-catalog prices/orderbook/trades/oi, category assignment, provider-category rollup, hourly price/liquidity rollups
 3. `cron:full-catalog:resume` (recommended every 15 minutes where scheduler timeout is strict):
 - mode: `full_catalog`
 - orchestration state: provider/step pointer persisted in `ops.ingest_checkpoint` under system key
@@ -459,7 +459,7 @@ curl -s http://localhost:3000/v1/meta/category-quality
 4. `BBO`: best bid / best ask.
 5. `OI`: open interest.
 6. `CLOB`: central limit order book.
-7. `Scope`: top-N market set currently prioritized for high-frequency polling.
+7. `Scope`: seed top-N market set expanded to all active/closed/unknown markets that share events with the seeds, prioritized for high-frequency polling.
 8. `Checkpoint`: persisted cursor/progress state per provider+job.
 
 ```mermaid

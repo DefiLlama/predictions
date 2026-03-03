@@ -28,7 +28,7 @@ export interface CategoryAssignPayload extends BaseJobPayload {
 
 export interface RelinkPayload extends BaseJobPayload {
   providerCode?: ProviderCode;
-  maxMarkets?: number;
+  maxMarkets?: number | null;
 }
 
 export type JobPayload = ScopeRebuildPayload | IngestPayload | AnalyticsRollupPayload | CategoryAssignPayload | RelinkPayload;

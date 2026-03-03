@@ -61,7 +61,7 @@ const STEP_DB_RETRY_MAX_ATTEMPTS = 2;
 const STEP_DB_RETRY_BACKOFF_MS = 1_500;
 const FULL_CATALOG_RESUME_CHECKPOINT_PROVIDER = "system";
 const FULL_CATALOG_RESUME_CHECKPOINT_KEY = "cron:full-catalog:resume:v1";
-const FULL_CATALOG_PROVIDERS = ["polymarket", "kalshi"] satisfies ProviderCode[];
+const PIPELINE_PROVIDERS = ["polymarket", "kalshi"] satisfies ProviderCode[];
 
 const RETRYABLE_DB_ERROR_CODES = new Set([
   "08000",
@@ -301,8 +301,8 @@ function clampProviderIndex(index: number): number {
     return 0;
   }
 
-  if (index >= FULL_CATALOG_PROVIDERS.length) {
-    return FULL_CATALOG_PROVIDERS.length - 1;
+  if (index >= PIPELINE_PROVIDERS.length) {
+    return PIPELINE_PROVIDERS.length - 1;
   }
 
   return index;
@@ -320,7 +320,7 @@ function createFullCatalogResumeState(now: Date, requestId?: string): FullCatalo
     providerIndex: 0,
     stepIndex: 0,
     stepRetries: 0,
-    currentProvider: FULL_CATALOG_PROVIDERS[0],
+    currentProvider: PIPELINE_PROVIDERS[0],
     currentStep: JOB_NAMES.POLYMARKET_SYNC_METADATA,
     lastRequestId: requestId ?? null,
     lastStepStartedAt: null,
@@ -343,7 +343,7 @@ function parseFullCatalogResumeState(raw: Record<string, unknown> | null): FullC
   }
 
   const providerIndex = clampProviderIndex(Math.floor(parseFiniteNumber(raw.providerIndex, 0)));
-  const currentProvider = FULL_CATALOG_PROVIDERS[providerIndex];
+  const currentProvider = PIPELINE_PROVIDERS[providerIndex];
 
   return {
     version: 1,
@@ -386,8 +386,8 @@ async function loadFullCatalogResumeState(requestId: string): Promise<FullCatalo
 }
 
 function resolveCurrentFullCatalogStep(state: FullCatalogResumeState, requestId: string): StepDefinition | null {
-  while (state.providerIndex < FULL_CATALOG_PROVIDERS.length) {
-    const providerCode = FULL_CATALOG_PROVIDERS[state.providerIndex]!;
+  while (state.providerIndex < PIPELINE_PROVIDERS.length) {
+    const providerCode = PIPELINE_PROVIDERS[state.providerIndex]!;
     const steps = buildFullCatalogSteps(providerCode, requestId);
     if (state.stepIndex < steps.length) {
       const currentStep = steps[state.stepIndex]!;
@@ -415,19 +415,20 @@ function buildTopNLiveSteps(providerCode: ProviderCode, requestId: string): Step
       },
       {
         providerCode,
-        step: JOB_NAMES.SCOPE_REBUILD,
-        mode: "topN_live",
-        run: async () => ({ rowsUpserted: await rebuildScopeTopN(providerCode), rowsSkipped: 0 })
-      },
-      {
-        providerCode,
         step: JOB_NAMES.MARKET_RELINK_EVENTS,
         mode: "topN_live",
         run: () =>
           relinkMarketEvents(providerCode, {
             requestId,
-            target: "scope"
+            target: "all",
+            maxMarkets: null
           })
+      },
+      {
+        providerCode,
+        step: JOB_NAMES.SCOPE_REBUILD,
+        mode: "topN_live",
+        run: async () => ({ rowsUpserted: await rebuildScopeTopN(providerCode), rowsSkipped: 0 })
       },
       {
         providerCode,
@@ -457,12 +458,7 @@ function buildTopNLiveSteps(providerCode: ProviderCode, requestId: string): Step
         providerCode,
         step: JOB_NAMES.CATEGORY_ASSIGN_MARKETS,
         mode: "topN_live",
-        run: () =>
-          rebuildMarketCategoryAssignments(providerCode, {
-            requestId,
-            target: "scope",
-            maxMarkets: env.POLYMARKET_SCOPE_TOP_N
-          })
+        run: () => rebuildMarketCategoryAssignments(providerCode, { requestId, target: "scope" })
       },
       {
         providerCode,
@@ -494,19 +490,20 @@ function buildTopNLiveSteps(providerCode: ProviderCode, requestId: string): Step
     },
     {
       providerCode,
-      step: JOB_NAMES.SCOPE_REBUILD,
-      mode: "topN_live",
-      run: async () => ({ rowsUpserted: await rebuildScopeTopN(providerCode), rowsSkipped: 0 })
-    },
-    {
-      providerCode,
       step: JOB_NAMES.MARKET_RELINK_EVENTS,
       mode: "topN_live",
       run: () =>
         relinkMarketEvents(providerCode, {
           requestId,
-          target: "scope"
+          target: "all",
+          maxMarkets: null
         })
+    },
+    {
+      providerCode,
+      step: JOB_NAMES.SCOPE_REBUILD,
+      mode: "topN_live",
+      run: async () => ({ rowsUpserted: await rebuildScopeTopN(providerCode), rowsSkipped: 0 })
     },
     {
       providerCode,
@@ -536,12 +533,7 @@ function buildTopNLiveSteps(providerCode: ProviderCode, requestId: string): Step
       providerCode,
       step: JOB_NAMES.CATEGORY_ASSIGN_MARKETS,
       mode: "topN_live",
-      run: () =>
-        rebuildMarketCategoryAssignments(providerCode, {
-          requestId,
-          target: "scope",
-          maxMarkets: env.POLYMARKET_SCOPE_TOP_N
-        })
+      run: () => rebuildMarketCategoryAssignments(providerCode, { requestId, target: "scope" })
     },
     {
       providerCode,
@@ -577,7 +569,7 @@ function buildFullCatalogSteps(providerCode: ProviderCode, requestId: string): S
         providerCode,
         step: JOB_NAMES.MARKET_RELINK_EVENTS,
         mode: "full_catalog",
-        run: () => relinkMarketEvents(providerCode, { requestId, maxMarkets: env.MARKET_RELINK_MAX_MARKETS_PER_RUN })
+        run: () => relinkMarketEvents(providerCode, { requestId, target: "all", maxMarkets: null })
       },
       {
         providerCode,
@@ -652,7 +644,7 @@ function buildFullCatalogSteps(providerCode: ProviderCode, requestId: string): S
       providerCode,
       step: JOB_NAMES.MARKET_RELINK_EVENTS,
       mode: "full_catalog",
-      run: () => relinkMarketEvents(providerCode, { requestId, maxMarkets: env.MARKET_RELINK_MAX_MARKETS_PER_RUN })
+      run: () => relinkMarketEvents(providerCode, { requestId, target: "all", maxMarkets: null })
     },
     {
       providerCode,
@@ -716,7 +708,7 @@ function buildFullCatalogSteps(providerCode: ProviderCode, requestId: string): S
   ];
 }
 
-function summarizePipeline(counters: PipelineCounters[]): JobRunResult {
+export function summarizePipeline(counters: PipelineCounters[]): JobRunResult {
   const rowsUpserted = counters.reduce((sum, item) => sum + item.rowsUpserted, 0);
   const rowsSkipped = counters.reduce((sum, item) => sum + item.rowsSkipped, 0);
   const errors = counters.reduce((sum, item) => sum + item.errors, 0);
@@ -729,16 +721,50 @@ function summarizePipeline(counters: PipelineCounters[]): JobRunResult {
   };
 }
 
+export async function runProvidersWithConcurrency(
+  providers: ProviderCode[],
+  providerConcurrency: number,
+  runner: (providerCode: ProviderCode) => Promise<PipelineCounters>
+): Promise<PipelineCounters[]> {
+  if (providers.length === 0) {
+    return [];
+  }
+
+  const workerCount = Math.max(1, Math.min(Math.floor(providerConcurrency), providers.length));
+  const results: PipelineCounters[] = new Array(providers.length);
+  let nextIndex = 0;
+
+  const runWorker = async (): Promise<void> => {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= providers.length) {
+        return;
+      }
+
+      const providerCode = providers[index]!;
+      results[index] = await runner(providerCode);
+    }
+  };
+
+  await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+  return results;
+}
+
 export async function runTopNLivePipeline(requestIdInput?: string): Promise<JobRunResult> {
   const requestId = requestIdInput ?? randomUUID();
   const pipeline = "topN_live";
   const startedAt = Date.now();
+  const providers = [...PIPELINE_PROVIDERS];
+  const providerConcurrency = providers.length;
 
-  const counters = [];
-  for (const providerCode of ["polymarket", "kalshi"] satisfies ProviderCode[]) {
-    const providerCounters = await runProviderSteps(requestId, pipeline, providerCode, buildTopNLiveSteps(providerCode, requestId));
-    counters.push(providerCounters);
-  }
+  logger.info({ pipeline, requestId, providerConcurrency, providers }, "Cron provider scheduler started");
+
+  const counters = await runProvidersWithConcurrency(
+    providers,
+    providerConcurrency,
+    async (providerCode) => runProviderSteps(requestId, pipeline, providerCode, buildTopNLiveSteps(providerCode, requestId))
+  );
 
   const summary = summarizePipeline(counters);
 
@@ -762,12 +788,16 @@ export async function runFullCatalogPipeline(requestIdInput?: string): Promise<J
   const requestId = requestIdInput ?? randomUUID();
   const pipeline = "full_catalog";
   const startedAt = Date.now();
+  const providers = [...PIPELINE_PROVIDERS];
+  const providerConcurrency = Math.max(1, Math.min(env.CRON_FULLCAT_PROVIDER_CONCURRENCY, providers.length));
 
-  const counters = [];
-  for (const providerCode of ["polymarket", "kalshi"] satisfies ProviderCode[]) {
-    const providerCounters = await runProviderSteps(requestId, pipeline, providerCode, buildFullCatalogSteps(providerCode, requestId));
-    counters.push(providerCounters);
-  }
+  logger.info({ pipeline, requestId, providerConcurrency, providers }, "Cron provider scheduler started");
+
+  const counters = await runProvidersWithConcurrency(
+    providers,
+    providerConcurrency,
+    async (providerCode) => runProviderSteps(requestId, pipeline, providerCode, buildFullCatalogSteps(providerCode, requestId))
+  );
 
   const summary = summarizePipeline(counters);
 

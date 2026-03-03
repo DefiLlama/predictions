@@ -388,7 +388,7 @@ async function listMarketsForClassification(params: {
       .innerJoin(market, eq(market.id, marketScope.marketId))
       .innerJoin(platform, eq(platform.id, market.platformId))
       .leftJoin(event, eq(event.id, market.eventId))
-      .where(eq(platform.code, params.providerCode))
+      .where(and(eq(platform.code, params.providerCode), gt(market.id, params.lastMarketId)))
       .orderBy(market.id)
       .limit(params.maxMarkets);
   }
@@ -396,31 +396,19 @@ async function listMarketsForClassification(params: {
   return baseQuery;
 }
 
-export async function rebuildMarketCategoryAssignments(
-  providerCode: ProviderCode,
-  options?: RebuildCategoryOptions
-): Promise<JobRunResult> {
-  const target = options?.target ?? "scope";
-  const maxMarkets = Math.max(1, Math.min(options?.maxMarkets ?? 5000, 50000));
-  const platformRow = await getPlatformOrThrow(providerCode);
-  const canonicalByCode = await seedCanonicalSectors();
-  const rowsSeeded = await seedProviderCategoryMappings(providerCode, platformRow.id, canonicalByCode);
+async function classifyAndUpsertMarketBatch(params: {
+  markets: MarketClassificationRow[];
+  providerCode: ProviderCode;
+  canonicalByCode: Map<string, number>;
+}): Promise<{ providerCategoryRowsUpserted: number; assignmentsUpserted: number; rowsSkipped: number }> {
+  if (params.markets.length === 0) {
+    return { providerCategoryRowsUpserted: 0, assignmentsUpserted: 0, rowsSkipped: 0 };
+  }
 
-  const checkpointJobName = getScopedCheckpointJobName(providerCode);
-  const cursor = target === "all" ? parseBackfillCursor(await getCheckpoint(providerCode, checkpointJobName)) : null;
-  const lastMarketId = target === "all" ? cursor?.lastMarketId ?? 0 : 0;
-
-  const markets = await listMarketsForClassification({
-    providerCode,
-    target,
-    lastMarketId,
-    maxMarkets
-  });
-
-  const classified = markets.map((row) => ({
+  const classified = params.markets.map((row) => ({
     marketId: row.marketId,
     platformId: row.platformId,
-    ...classifyMarket(row, providerCode)
+    ...classifyMarket(row, params.providerCode)
   }));
 
   const providerCategories = Array.from(
@@ -484,7 +472,7 @@ export async function rebuildMarketCategoryAssignments(
 
   const assignmentRows = classified
     .map((row) => {
-      const canonicalCategoryId = canonicalByCode.get(row.canonicalCode);
+      const canonicalCategoryId = params.canonicalByCode.get(row.canonicalCode);
       if (!canonicalCategoryId) {
         rowsSkipped += 1;
         return null;
@@ -532,17 +520,87 @@ export async function rebuildMarketCategoryAssignments(
     assignmentsUpserted = upserted.length;
   }
 
-  if (target === "all") {
-    const nextLastMarketId = markets.length > 0 ? markets[markets.length - 1]!.marketId : lastMarketId;
-    const completed = markets.length < maxMarkets;
+  return {
+    providerCategoryRowsUpserted,
+    assignmentsUpserted,
+    rowsSkipped
+  };
+}
 
-    await setCheckpoint(providerCode, checkpointJobName, {
-      lastMarketId: nextLastMarketId,
-      processedCount: (cursor?.processedCount ?? 0) + markets.length,
-      completed,
-      updatedAt: new Date().toISOString(),
-      requestId: options?.requestId ?? null
+export async function rebuildMarketCategoryAssignments(
+  providerCode: ProviderCode,
+  options?: RebuildCategoryOptions
+): Promise<JobRunResult> {
+  const target = options?.target ?? "scope";
+  const hasExplicitMaxMarkets = typeof options?.maxMarkets === "number" && Number.isFinite(options.maxMarkets);
+  const maxMarkets = Math.max(1, Math.min(Math.floor(options?.maxMarkets ?? 5000), 50000));
+  const platformRow = await getPlatformOrThrow(providerCode);
+  const canonicalByCode = await seedCanonicalSectors();
+  const rowsSeeded = await seedProviderCategoryMappings(providerCode, platformRow.id, canonicalByCode);
+
+  const checkpointJobName = getScopedCheckpointJobName(providerCode);
+  const cursor = target === "all" ? parseBackfillCursor(await getCheckpoint(providerCode, checkpointJobName)) : null;
+  let providerCategoryRowsUpserted = 0;
+  let assignmentsUpserted = 0;
+  let rowsSkipped = 0;
+
+  if (target === "all" || hasExplicitMaxMarkets) {
+    const lastMarketId = target === "all" ? cursor?.lastMarketId ?? 0 : 0;
+    const markets = await listMarketsForClassification({
+      providerCode,
+      target,
+      lastMarketId,
+      maxMarkets
     });
+    const batchResult = await classifyAndUpsertMarketBatch({
+      markets,
+      providerCode,
+      canonicalByCode
+    });
+    providerCategoryRowsUpserted += batchResult.providerCategoryRowsUpserted;
+    assignmentsUpserted += batchResult.assignmentsUpserted;
+    rowsSkipped += batchResult.rowsSkipped;
+
+    if (target === "all") {
+      const nextLastMarketId = markets.length > 0 ? markets[markets.length - 1]!.marketId : lastMarketId;
+      const completed = markets.length < maxMarkets;
+
+      await setCheckpoint(providerCode, checkpointJobName, {
+        lastMarketId: nextLastMarketId,
+        processedCount: (cursor?.processedCount ?? 0) + markets.length,
+        completed,
+        updatedAt: new Date().toISOString(),
+        requestId: options?.requestId ?? null
+      });
+    }
+  } else {
+    let lastMarketId = 0;
+
+    while (true) {
+      const markets = await listMarketsForClassification({
+        providerCode,
+        target,
+        lastMarketId,
+        maxMarkets
+      });
+      if (markets.length === 0) {
+        break;
+      }
+
+      const batchResult = await classifyAndUpsertMarketBatch({
+        markets,
+        providerCode,
+        canonicalByCode
+      });
+      providerCategoryRowsUpserted += batchResult.providerCategoryRowsUpserted;
+      assignmentsUpserted += batchResult.assignmentsUpserted;
+      rowsSkipped += batchResult.rowsSkipped;
+      lastMarketId = markets[markets.length - 1]!.marketId;
+
+      if (markets.length < maxMarkets) {
+        break;
+      }
+    }
   }
 
   return {

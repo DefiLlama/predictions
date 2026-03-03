@@ -53,6 +53,7 @@ const envSchema = z.object({
 
   CRON_TOPN_LOCK_KEY: z.coerce.bigint().default(161001n),
   CRON_FULLCAT_LOCK_KEY: z.coerce.bigint().default(161002n),
+  CRON_FULLCAT_PROVIDER_CONCURRENCY: z.coerce.number().int().positive().default(2),
   CRON_LOCK_TIMEOUT_MS: z.coerce.number().int().nonnegative().default(0),
   CRON_STEP_TIMEOUT_MS: z.coerce.number().int().positive().default(20 * 60 * 1000),
   FULL_CATALOG_RESUME_INVOCATION_BUDGET_MS: z.coerce.number().int().positive().default(55 * 60 * 1000),
