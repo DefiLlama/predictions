@@ -604,77 +604,86 @@ export async function rebuildMarketCategoryAssignments(
 }
 
 export async function refreshMarketCategorySnapshot1h(providerCode: ProviderCode): Promise<JobRunResult> {
-  const currentBucket = sql`date_trunc('hour', now())`;
-  const retentionThreshold = sql`date_trunc('hour', now()) - interval '30 days'`;
+  const rowsUpserted = await db.transaction(async (tx) => {
+    const currentBucket = sql`date_trunc('hour', now())`;
+    const retentionThreshold = sql`date_trunc('hour', now()) - interval '30 days'`;
 
-  const result = await db.execute(sql`
-    with coverage_modes as (
-      select unnest(array['all', 'scope'])::varchar(16) as coverage_mode
-    ),
-    deleted_current_bucket as (
+    await tx.execute(sql`
       delete from agg.market_category_snapshot_1h snapshot
-      using coverage_modes cm
       where snapshot.provider_code = ${providerCode}
-        and snapshot.coverage_mode = cm.coverage_mode
+        and snapshot.coverage_mode in ('all', 'scope')
         and snapshot.bucket_ts = ${currentBucket}
-      returning 1
-    ),
-    inserted as (
-      insert into agg.market_category_snapshot_1h (
-        provider_code,
-        coverage_mode,
-        bucket_ts,
-        market_id,
-        category_code,
-        category_label,
-        volume24h,
-        liquidity,
-        status,
-        created_at,
-        updated_at
-      )
-      select
-        p.code as provider_code,
-        cm.coverage_mode,
-        ${currentBucket} as bucket_ts,
-        m.id as market_id,
-        coalesce(cc.code, 'unknown') as category_code,
-        coalesce(cc.label, 'Unknown') as category_label,
-        coalesce(m.volume_24h, 0)::numeric(24, 6) as volume24h,
-        coalesce(m.liquidity, 0)::numeric(24, 6) as liquidity,
-        m.status,
-        now(),
-        now()
-      from core.market m
-      join core.platform p on p.id = m.platform_id
-      cross join coverage_modes cm
-      left join core.market_category_assignment mca on mca.market_id = m.id
-      left join core.category_dim cc on cc.id = mca.canonical_category_id
-      where p.code = ${providerCode}
-        and (
-          cm.coverage_mode = 'all'
-          or exists (
-            select 1
-            from core.market_scope ms
-            where ms.platform_id = p.id
-              and ms.market_id = m.id
-          )
+    `);
+
+    const upsertResult = await tx.execute(sql`
+      with coverage_modes as (
+        select unnest(array['all', 'scope'])::varchar(16) as coverage_mode
+      ),
+      upserted as (
+        insert into agg.market_category_snapshot_1h (
+          provider_code,
+          coverage_mode,
+          bucket_ts,
+          market_id,
+          category_code,
+          category_label,
+          volume24h,
+          liquidity,
+          status,
+          created_at,
+          updated_at
         )
-      returning 1
-    ),
-    deleted_expired as (
+        select
+          p.code as provider_code,
+          cm.coverage_mode,
+          ${currentBucket} as bucket_ts,
+          m.id as market_id,
+          coalesce(cc.code, 'unknown') as category_code,
+          coalesce(cc.label, 'Unknown') as category_label,
+          coalesce(m.volume_24h, 0)::numeric(24, 6) as volume24h,
+          coalesce(m.liquidity, 0)::numeric(24, 6) as liquidity,
+          m.status,
+          now(),
+          now()
+        from core.market m
+        join core.platform p on p.id = m.platform_id
+        cross join coverage_modes cm
+        left join core.market_category_assignment mca on mca.market_id = m.id
+        left join core.category_dim cc on cc.id = mca.canonical_category_id
+        where p.code = ${providerCode}
+          and (
+            cm.coverage_mode = 'all'
+            or exists (
+              select 1
+              from core.market_scope ms
+              where ms.platform_id = p.id
+                and ms.market_id = m.id
+            )
+          )
+        on conflict (provider_code, coverage_mode, bucket_ts, market_id)
+        do update set
+          category_code = excluded.category_code,
+          category_label = excluded.category_label,
+          volume24h = excluded.volume24h,
+          liquidity = excluded.liquidity,
+          status = excluded.status,
+          updated_at = now()
+        returning 1
+      )
+      select count(*)::int as upserted_count
+      from upserted
+    `);
+
+    await tx.execute(sql`
       delete from agg.market_category_snapshot_1h snapshot
       where snapshot.provider_code = ${providerCode}
         and snapshot.bucket_ts < ${retentionThreshold}
-      returning 1
-    )
-    select
-      (select count(*)::int from inserted) as inserted_count,
-      (select count(*)::int from deleted_expired) as deleted_expired_count
-  `);
+    `);
 
-  const summary = result.rows[0] as { inserted_count?: number | string; deleted_expired_count?: number | string } | undefined;
-  const rowsUpserted = Number(summary?.inserted_count ?? 0);
+    const summary = upsertResult.rows[0] as { upserted_count?: number | string } | undefined;
+    return Number(summary?.upserted_count ?? 0);
+  });
+
   return { rowsUpserted, rowsSkipped: 0 };
 }
 
