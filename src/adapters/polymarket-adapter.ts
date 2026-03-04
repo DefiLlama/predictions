@@ -29,7 +29,6 @@ interface GammaMarketRaw {
   closed?: unknown;
   archived?: unknown;
   volume24hr?: unknown;
-  liquidity?: unknown;
   clobTokenIds?: unknown;
   outcomes?: unknown;
   [key: string]: unknown;
@@ -391,7 +390,6 @@ export class PolymarketAdapter implements ProviderAdapter {
           status: normalizeStatus(raw.active, raw.closed, raw.archived),
           closeTime: asDate(raw.endDate),
           volume24h: asNumber(raw.volume24hr),
-          liquidity: asNumber(raw.liquidity),
           rawJson: asObject(raw)
         } satisfies NormalizedMarket;
       })

@@ -619,7 +619,6 @@ async function upsertProviderMetadata(params: {
           status: item.status,
           closeTime: item.closeTime,
           volume24h: toNullableNumericString(item.volume24h),
-          liquidity: toNullableNumericString(item.liquidity),
           rawJson: item.rawJson,
           updatedAt: metadataTimestamp
         }))
@@ -634,7 +633,7 @@ async function upsertProviderMetadata(params: {
           status: sql`excluded.status`,
           closeTime: sql`excluded.close_time`,
           volume24h: sql`excluded.volume_24h`,
-          liquidity: sql`excluded.liquidity`,
+          liquidity: sql`null`,
           rawJson: sql`excluded.raw_json`,
           updatedAt: metadataTimestamp
         }

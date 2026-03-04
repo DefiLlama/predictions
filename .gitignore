@@ -3,7 +3,8 @@ dist/
 .env
 .env.local
 .DS_Store
+*.tsbuildinfo
 
 # Next.js
-frontend/.next/
-frontend/out/
+.next/
+out/

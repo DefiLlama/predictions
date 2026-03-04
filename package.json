@@ -3,21 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "workspaces": [
-    "frontend"
-  ],
   "packageManager": "npm@10.x",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "dev": "concurrently -n api,web -c blue,green \"npm run dev:api\" \"npm run dev:web\"",
-    "dev:api": "tsx watch src/cli/main.ts server",
-    "dev:web": "npm run dev -w frontend",
-    "start": "tsx src/cli/main.ts server",
-    "start:api": "tsx src/cli/main.ts server",
-    "build:web": "npm run build -w frontend",
-    "start:web": "npm run start -w frontend",
+    "dev": "next dev --webpack -p 3000",
+    "build": "next build --webpack",
+    "start": "next start -p ${PORT:-3000}",
     "cron:topn-live": "tsx src/cli/main.ts cron:topn-live",
     "cron:full-catalog": "tsx src/cli/main.ts cron:full-catalog",
     "cron:full-catalog:resume": "tsx src/cli/main.ts cron:full-catalog:resume",
@@ -44,24 +37,32 @@
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
     "db:prepare": "npm run db:create && npm run db:migrate && npm run db:seed",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "npm run typecheck:web && npm run typecheck:server",
+    "typecheck:web": "tsc --noEmit -p tsconfig.json",
+    "typecheck:server": "tsc --noEmit -p tsconfig.server.json",
     "test": "tsx --test src/**/*.test.ts"
   },
   "dependencies": {
-    "@fastify/cors": "^11.2.0",
     "dotenv": "^17.3.1",
     "drizzle-orm": "^0.45.1",
-    "fastify": "^5.7.4",
+    "echarts": "^5.6.0",
+    "echarts-for-react": "^3.0.2",
+    "next": "^16.1.0",
     "pg": "^8.19.0",
     "pino": "^10.3.1",
     "pino-pretty": "^13.1.3",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.0",
     "@types/node": "^25.3.2",
     "@types/pg": "^8.18.0",
-    "concurrently": "^9.1.2",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
     "drizzle-kit": "^0.31.9",
+    "tailwindcss": "^4.1.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }

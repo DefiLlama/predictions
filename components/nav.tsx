@@ -16,8 +16,11 @@ export function Nav() {
   return (
     <nav className="sticky top-0 z-40 border-b border-[var(--bg-border)] bg-[var(--bg-app)]/80 backdrop-blur-md">
       <div className="mx-auto flex h-14 max-w-[1400px] items-center gap-6 px-4">
-        <Link href="/" className="text-base font-semibold text-[var(--text-primary)]">
-          PredictionMkts
+        <Link
+          href="/"
+          className="text-base font-semibold text-[var(--text-primary)]"
+        >
+          PredictionMarkets
         </Link>
         <div className="flex items-center gap-1">
           {links.map(({ href, label }) => {

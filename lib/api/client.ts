@@ -13,7 +13,8 @@ import type {
 } from "./types";
 
 const BASE_URL =
-  process.env.PREDICTION_API_URL ?? "http://127.0.0.1:3000";
+  process.env.PREDICTION_API_URL ??
+  `http://127.0.0.1:${process.env.PORT ?? "3000"}`;
 
 async function fetchApi<T>(
   path: string,
@@ -48,7 +49,6 @@ export async function getDashboardMain(provider?: string) {
 
 export async function getDashboardTreemap(params?: {
   provider?: string;
-  metric?: string;
   coverage?: string;
 }) {
   return fetchApi<ApiEnvelope<TreemapEntry[]>>("/v1/dashboard/treemap", params);

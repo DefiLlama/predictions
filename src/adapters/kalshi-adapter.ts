@@ -36,7 +36,6 @@ interface KalshiMarketRaw {
   status?: unknown;
   volume_24h?: unknown;
   volume_24h_fp?: unknown;
-  liquidity?: unknown;
   open_interest?: unknown;
   open_interest_fp?: unknown;
   updated_time?: unknown;
@@ -431,7 +430,6 @@ export class KalshiAdapter implements ProviderAdapter {
           status: normalizeStatus(asString(raw.status)),
           closeTime: asDate(raw.close_time) ?? asDate(raw.expiration_time),
           volume24h: asNumber(raw.volume_24h_fp) ?? asNumber(raw.volume_24h),
-          liquidity: asNumber(raw.liquidity),
           rawJson: asObject(raw)
         } satisfies NormalizedMarket;
       })

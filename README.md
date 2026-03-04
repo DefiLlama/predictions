@@ -1,12 +1,17 @@
-# Prediction Markets Ingestion Service
+# Prediction Markets
 
-Provider-agnostic backend scaffold with Polymarket and Kalshi ingestion adapters.
+Single-project Next.js application that serves both:
+
+- Web frontend (App Router)
+- API endpoints (`/healthz`, `/readyz`, `/v1/...`)
+
+Backend domain/DB/ingestion code remains in `src/` and is reused by Next route handlers.
 
 ## Stack
 
 - Node 22 runtime
 - npm package manager
-- TypeScript + Fastify
+- TypeScript + Next.js 16 (App Router)
 - PostgreSQL + Drizzle ORM/migrations
 - Cron-driven ingestion pipelines
 
@@ -18,13 +23,14 @@ Provider-agnostic backend scaffold with Polymarket and Kalshi ingestion adapters
 npm install
 ```
 
-2. Copy env file and adjust if needed:
+2. Copy env file and adjust values as needed:
 
 ```bash
 cp .env.example .env
 ```
 
-`CORS_ORIGIN` controls API CORS allowlist (`*` for open, or comma-separated origins).
+- `CORS_ORIGIN` controls API CORS allowlist (`*` for open, or comma-separated origins).
+- `PREDICTION_API_URL` is optional; defaults to `http://127.0.0.1:${PORT}` (or `3000`).
 
 3. Create DB, run migrations, seed providers:
 
@@ -34,9 +40,16 @@ npm run db:prepare
 
 ## Run Commands
 
-Start API server (API only):
+Local dev (web + API in one process):
 
 ```bash
+npm run dev
+```
+
+Production web service:
+
+```bash
+npm run build
 npm run start
 ```
 
@@ -79,18 +92,28 @@ npm run ingest:rollups
 npm run ingest:all
 ```
 
-Verification:
+Verification and tests:
 
 ```bash
 npm run verify:summary
 npm run verify:summary:strict
-```
-
-Tests:
-
-```bash
+npm run typecheck
 npm test
 ```
+
+## Coolify Deployment
+
+Run as a single web service:
+
+- Build command: `npm ci && npm run build`
+- Start command: `npm run start`
+- Port: `3000`
+- Health check path: `/healthz`
+
+Use separate Coolify cron jobs from this same repository for ingestion:
+
+- `npm run cron:topn-live`
+- `npm run cron:full-catalog:resume`
 
 ## Ingestion Modes
 
@@ -112,8 +135,10 @@ npm test
 - `GET /v1/events/:eventUid`
 - `GET /v1/events/:eventUid/trades?limit=50`
 - `GET /v1/events/:eventUid/price-history?from=&to=&interval=1h`
+- `GET /v1/markets/:marketUid/price-history?from=&to=&interval=1h`
 - `GET /v1/dashboard/main?provider=polymarket|kalshi`
-- `GET /v1/dashboard/treemap?provider=polymarket|kalshi&metric=volume24h|liquidity&coverage=all|scope`
+- `GET /v1/dashboard/treemap?provider=polymarket|kalshi&coverage=all|scope`
+- `GET /v1/trades/top?window=24h|7d|30d&provider=polymarket|kalshi&limit=&offset=`
 
 ## Notes
 
@@ -122,4 +147,4 @@ npm test
 - Canonical probability scale in storage is `0..1`.
 - `ops.job_run_log` is the canonical run history (step-level + cron skip outcomes).
 - `ops.ingest_checkpoint` stores incremental windows and full-catalog cursor state.
-- `/v1/dashboard/main` now returns provider KPIs plus event-level rows with nested markets/instruments sourced from `core.market_scope`.
+- `/v1/dashboard/main` returns provider KPIs plus event-level rows with nested markets/instruments sourced from `core.market_scope`.

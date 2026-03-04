@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 
-import { startServer } from "../app/server.js";
 import { env } from "../config/env.js";
 import { closeDb } from "../db/client.js";
 import { JOB_NAMES } from "../jobs/names.js";
@@ -36,7 +35,6 @@ function printUsage(): void {
   console.log(`Usage: npm run <script>
 
 Commands:
-  server
   cron:topn-live
   cron:full-catalog
   cron:full-catalog:resume
@@ -317,11 +315,6 @@ async function main(): Promise<void> {
   await recoverStaleJobRunsBestEffort();
 
   switch (COMMAND) {
-    case "server": {
-      await startServer();
-      return;
-    }
-
     case "cron:topn-live": {
       await runCronCommand({
         jobName: JOB_NAMES.CRON_TOPN_LIVE,
@@ -595,30 +588,19 @@ async function main(): Promise<void> {
 }
 
 async function finalizeCli(exitCode: number): Promise<never> {
-  if (COMMAND !== "server") {
-    try {
-      await closeDb();
-    } catch (error) {
-      logger.error({ error }, "Failed to close DB during CLI shutdown");
-      exitCode = 1;
-    }
+  try {
+    await closeDb();
+  } catch (error) {
+    logger.error({ error }, "Failed to close DB during CLI shutdown");
+    exitCode = 1;
   }
 
   process.exit(exitCode);
 }
 
 main()
-  .then(() => {
-    if (COMMAND !== "server") {
-      return finalizeCli(0);
-    }
-  })
+  .then(() => finalizeCli(0))
   .catch((error) => {
     logger.error({ error }, "CLI command failed");
-
-    if (COMMAND !== "server") {
-      return finalizeCli(1);
-    }
-
-    process.exitCode = 1;
+    return finalizeCli(1);
   });

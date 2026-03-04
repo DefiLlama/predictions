@@ -2202,7 +2202,6 @@ export async function getDashboardMain(params?: {
 
 export async function getDashboardTreemap(params?: {
   providerCode?: ProviderCode;
-  metric?: "volume24h" | "liquidity";
   coverage?: "all" | "scope";
 }): Promise<
   Array<{
@@ -2216,7 +2215,6 @@ export async function getDashboardTreemap(params?: {
     activeMarketCount: number;
   }>
 > {
-  const metric = params?.metric ?? "volume24h";
   const coverage = params?.coverage ?? "all";
   const providerCode = params?.providerCode ?? null;
 
@@ -2233,12 +2231,7 @@ export async function getDashboardTreemap(params?: {
       s.category_code as "categoryCode",
       s.category_label as "categoryLabel",
       s.bucket_ts as "bucketTs",
-      (
-        case
-          when ${metric} = 'liquidity' then sum(s.liquidity)
-          else sum(s.volume24h)
-        end
-      )::text as value,
+      sum(s.volume24h)::text as value,
       count(*)::int as "marketCount",
       count(*) filter (where s.status = 'active')::int as "activeMarketCount"
     from agg.market_category_snapshot_1h s
@@ -2254,12 +2247,7 @@ export async function getDashboardTreemap(params?: {
       s.category_label,
       s.bucket_ts
     order by
-      (
-        case
-          when ${metric} = 'liquidity' then sum(s.liquidity)
-          else sum(s.volume24h)
-        end
-      ) desc,
+      sum(s.volume24h) desc,
       s.provider_code asc,
       s.category_code asc
   `);

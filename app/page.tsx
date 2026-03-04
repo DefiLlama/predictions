@@ -1,9 +1,8 @@
 import { Suspense } from "react";
-import { getDashboardMain, getDashboardTreemap } from "@/lib/api/client";
+import { getDashboardMain, getDashboardTreemap, getTopTrades } from "@/lib/api/client";
 import { KpiCards } from "@/components/kpi-cards";
 import { EventCard } from "@/components/event-card";
 import { TreemapChartView } from "@/components/treemap-chart";
-import { TreemapControls } from "@/components/treemap-controls";
 import { ProviderFilter } from "@/components/provider-filter";
 import { EmptyState } from "@/components/empty-state";
 
@@ -14,11 +13,11 @@ export default async function DashboardPage({
 }) {
   const params = await searchParams;
   const provider = typeof params.provider === "string" ? params.provider : undefined;
-  const metric = typeof params.metric === "string" ? params.metric : undefined;
 
-  const [mainRes, treemapRes] = await Promise.all([
+  const [mainRes, treemapRes, topTradesRes] = await Promise.all([
     getDashboardMain(provider),
-    getDashboardTreemap({ provider, metric, coverage: "all" }),
+    getDashboardTreemap({ provider, coverage: "all" }),
+    getTopTrades({ window: "24h", provider, limit: "1", offset: "0" }),
   ]);
 
   const { kpis, events } = mainRes.data;
@@ -38,7 +37,11 @@ export default async function DashboardPage({
       </div>
 
       {/* KPIs */}
-      <KpiCards kpis={kpis} />
+      <KpiCards
+        kpis={kpis}
+        tradeFlow24h={topTradesRes.data.summary}
+        providerCode={provider}
+      />
 
       {/* Treemap */}
       <section>
@@ -46,9 +49,6 @@ export default async function DashboardPage({
           <h2 className="text-base font-semibold text-[var(--text-primary)]">
             Category Breakdown
           </h2>
-          <Suspense>
-            <TreemapControls />
-          </Suspense>
         </div>
         <div className="rounded-lg border border-[var(--bg-border)] bg-[var(--bg-card)] p-4">
           <TreemapChartView data={treemapRes.data} />

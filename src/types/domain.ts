@@ -20,7 +20,6 @@ export interface NormalizedMarket {
   status: MarketStatus;
   closeTime: Date | null;
   volume24h: number | null;
-  liquidity: number | null;
   rawJson: Record<string, unknown>;
 }
 
