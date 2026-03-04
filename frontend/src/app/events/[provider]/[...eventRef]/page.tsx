@@ -1,10 +1,10 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getEventDetail, getEventPriceHistory } from "@/lib/api/client";
-import { RefreshBar } from "@/components/refresh-bar";
+import { getEventDetail, getEventLatestTrades, getEventPriceHistory } from "@/lib/api/client";
 import { InstrumentTable } from "@/components/instrument-table";
 import { PriceChart } from "@/components/price-chart";
 import { EmptyState } from "@/components/empty-state";
+import { EventTradesTable } from "@/components/event-trades-table";
 import { formatUsd, providerLabel } from "@/lib/utils/format";
 import { uidToPath } from "@/lib/utils/params";
 
@@ -13,6 +13,8 @@ export default async function EventDetailPage({
 }: {
   params: Promise<{ provider: string; eventRef: string[] }>;
 }) {
+  const tradesMinNotionalLabel = "$100";
+
   const { provider, eventRef } = await params;
   const eventUid = `${provider}:${eventRef.join("/")}`;
 
@@ -31,6 +33,14 @@ export default async function EventDetailPage({
     eventPriceHistory = phRes.data;
   } catch {
     // Price history may not be available
+  }
+
+  let latestTrades = null;
+  try {
+    const tradesRes = await getEventLatestTrades(eventUid);
+    latestTrades = tradesRes.data;
+  } catch {
+    // Latest trades may not be available
   }
 
   const topSeries = eventPriceHistory?.series.slice(0, 5) ?? [];
@@ -80,7 +90,6 @@ export default async function EventDetailPage({
               )}
             </div>
           </div>
-          <RefreshBar timestamp={res.timestamp} />
         </div>
       </div>
 
@@ -96,47 +105,64 @@ export default async function EventDetailPage({
         </section>
       )}
 
-      {/* Markets */}
-      <section>
-        <h2 className="mb-3 text-base font-semibold text-[var(--text-primary)]">
-          Markets ({markets.length})
-        </h2>
-        {markets.length === 0 ? (
-          <EmptyState message="No markets for this event" />
-        ) : (
-          <div className="space-y-3">
-            {markets.map((mkt) => (
-              <div
-                key={mkt.marketUid}
-                className="rounded-lg border border-[var(--bg-border)] bg-[var(--bg-card)] p-4"
-              >
-                <div className="mb-3 flex items-start justify-between gap-4">
-                  <Link
-                    href={uidToPath(mkt.marketUid, "/markets")}
-                    className="text-sm font-medium text-[var(--text-primary)] hover:text-[var(--color-primary)] transition-colors"
-                  >
-                    {mkt.displayTitle ?? mkt.title ?? mkt.marketRef}
-                  </Link>
-                  <div className="flex items-center gap-3 shrink-0 text-xs text-[var(--text-tertiary)]">
-                    <span>{formatUsd(mkt.volume24h)} vol</span>
-                    <span>{formatUsd(mkt.liquidity)} liq</span>
-                    <span
-                      className={`rounded px-1.5 py-0.5 ${
-                        mkt.status === "active"
-                          ? "bg-[var(--color-success)]/10 text-[var(--color-success)]"
-                          : "bg-[var(--bg-surface)]"
-                      }`}
+      <div className="grid gap-6 lg:grid-cols-2">
+        <section>
+          <h2 className="mb-1 text-base font-semibold text-[var(--text-primary)]">
+            Latest Trades
+            {latestTrades ? ` (${latestTrades.trades.length} shown)` : ""}
+          </h2>
+          <p className="mb-3 text-xs text-[var(--text-tertiary)]">
+            Showing trades with notional &gt;= {tradesMinNotionalLabel}.
+          </p>
+          {latestTrades ? (
+            <EventTradesTable trades={latestTrades.trades} eventUid={eventUid} />
+          ) : (
+            <EmptyState message="Latest trades are currently unavailable" />
+          )}
+        </section>
+
+        {/* Markets */}
+        <section>
+          <h2 className="mb-3 text-base font-semibold text-[var(--text-primary)]">
+            Markets ({markets.length})
+          </h2>
+          {markets.length === 0 ? (
+            <EmptyState message="No markets for this event" />
+          ) : (
+            <div className="space-y-3">
+              {markets.map((mkt) => (
+                <div
+                  key={mkt.marketUid}
+                  className="rounded-lg border border-[var(--bg-border)] bg-[var(--bg-card)] p-4"
+                >
+                  <div className="mb-3 flex items-start justify-between gap-4">
+                    <Link
+                      href={uidToPath(mkt.marketUid, "/markets")}
+                      className="text-sm font-medium text-[var(--text-primary)] hover:text-[var(--color-primary)] transition-colors"
                     >
-                      {mkt.status}
-                    </span>
+                      {mkt.displayTitle ?? mkt.title ?? mkt.marketRef}
+                    </Link>
+                    <div className="flex items-center gap-3 shrink-0 text-xs text-[var(--text-tertiary)]">
+                      <span>{formatUsd(mkt.volume24h)} vol</span>
+                      <span>{formatUsd(mkt.liquidity)} liq</span>
+                      <span
+                        className={`rounded px-1.5 py-0.5 ${
+                          mkt.status === "active"
+                            ? "bg-[var(--color-success)]/10 text-[var(--color-success)]"
+                            : "bg-[var(--bg-surface)]"
+                        }`}
+                      >
+                        {mkt.status}
+                      </span>
+                    </div>
                   </div>
+                  <InstrumentTable instruments={mkt.instruments} />
                 </div>
-                <InstrumentTable instruments={mkt.instruments} />
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
     </div>
   );
 }

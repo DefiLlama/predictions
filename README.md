@@ -110,6 +110,7 @@ npm test
 - `GET /v1/markets?provider=polymarket|kalshi&limit=&offset=`
 - `GET /v1/markets/:marketUid`
 - `GET /v1/events/:eventUid`
+- `GET /v1/events/:eventUid/trades?limit=50`
 - `GET /v1/events/:eventUid/price-history?from=&to=&interval=1h`
 - `GET /v1/dashboard/main?provider=polymarket|kalshi`
 - `GET /v1/dashboard/treemap?provider=polymarket|kalshi&metric=volume24h|oi&status=all|active&groupBy=sector|providerCategory`

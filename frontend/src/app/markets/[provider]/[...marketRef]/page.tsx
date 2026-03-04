@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getMarketDetail, getMarketPriceHistory } from "@/lib/api/client";
-import { RefreshBar } from "@/components/refresh-bar";
 import { InstrumentTable } from "@/components/instrument-table";
 import { PriceChart } from "@/components/price-chart";
 import { formatUsd, formatTs, providerLabel } from "@/lib/utils/format";
@@ -79,12 +78,9 @@ export default async function MarketDetailPage({
             </div>
           )}
         </div>
-        <div className="flex flex-col items-end gap-2 shrink-0">
-          <RefreshBar timestamp={detailRes.timestamp} />
-          <div className="flex items-center gap-4 text-xs text-[var(--text-tertiary)]">
-            <span>{formatUsd(market.volume24h)} vol</span>
-            <span>{formatUsd(market.liquidity)} liq</span>
-          </div>
+        <div className="flex items-center gap-4 text-xs text-[var(--text-tertiary)] shrink-0">
+          <span>{formatUsd(market.volume24h)} vol</span>
+          <span>{formatUsd(market.liquidity)} liq</span>
         </div>
       </div>
 

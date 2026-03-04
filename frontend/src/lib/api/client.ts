@@ -6,6 +6,8 @@ import type {
   MarketSummary,
   MarketDetailData,
   EventDetailData,
+  EventLatestTradesData,
+  TopTradesData,
   PriceHistoryData,
   EventPriceHistoryData,
 } from "./types";
@@ -79,11 +81,32 @@ export async function getMarketPriceHistory(
   );
 }
 
+/* ── Top Trades ── */
+
+export async function getTopTrades(params?: {
+  window?: string;
+  provider?: string;
+  limit?: string;
+  offset?: string;
+}) {
+  return fetchApi<ApiEnvelope<TopTradesData>>("/v1/trades/top", params);
+}
+
 /* ── Events ── */
 
 export async function getEventDetail(eventUid: string) {
   return fetchApi<ApiEnvelope<EventDetailData>>(
     `/v1/events/${encodeURIComponent(eventUid)}`,
+  );
+}
+
+export async function getEventLatestTrades(
+  eventUid: string,
+  params?: { limit?: string },
+) {
+  return fetchApi<ApiEnvelope<EventLatestTradesData>>(
+    `/v1/events/${encodeURIComponent(eventUid)}/trades`,
+    params,
   );
 }
 

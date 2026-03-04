@@ -104,6 +104,10 @@ function toNullableDepthNumericString(value: number | null): string | null {
   return value === null ? null : value.toFixed(6);
 }
 
+export function shouldIngestTradeByNotional(notionalUsd: number | null): boolean {
+  return notionalUsd !== null && Math.abs(notionalUsd) >= env.TRADES_MIN_NOTIONAL_USD;
+}
+
 function computeMarketUid(providerCode: ProviderCode, marketRef: string): string {
   return `${providerCode}:${marketRef}`;
 }
@@ -2362,6 +2366,11 @@ async function syncProviderTradesResumableFullCatalog(
               return null;
             }
 
+            if (!shouldIngestTradeByNotional(item.notionalUsd)) {
+              rowsSkipped += 1;
+              return null;
+            }
+
             const instrumentId = item.instrumentRef ? (instrumentRefToId.get(item.instrumentRef) ?? null) : null;
 
             return {
@@ -2956,6 +2965,11 @@ async function syncProviderTrades(providerCode: ProviderCode, checkpointKey: str
         .map((item) => {
           const marketId = marketRefToId.get(item.marketRef);
           if (!marketId || !item.tradeRef) {
+            rowsSkipped += 1;
+            return null;
+          }
+
+          if (!shouldIngestTradeByNotional(item.notionalUsd)) {
             rowsSkipped += 1;
             return null;
           }

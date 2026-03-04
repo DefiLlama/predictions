@@ -158,6 +158,80 @@ export interface EventDetailData {
   markets: EventMarketDetail[];
 }
 
+export interface EventTradesEventInfo {
+  eventUid: string;
+  providerCode: string;
+  eventRef: string;
+  title: string | null;
+  category: string | null;
+  status: string | null;
+}
+
+export interface EventTradesMetrics {
+  tradesCount: number;
+  totalTrades: number;
+  windowStartTs: string | null;
+  windowEndTs: string | null;
+  totalNotionalUsd: string;
+  buyTrades: number;
+  sellTrades: number;
+}
+
+export interface EventTrade {
+  tradeRef: string;
+  ts: string;
+  side: string | null;
+  price: string | null;
+  qty: string | null;
+  notionalUsd: string | null;
+  marketUid: string;
+  marketRef: string;
+  marketTitle: string | null;
+  instrumentRef: string | null;
+  outcomeLabel: string | null;
+}
+
+export interface EventLatestTradesData {
+  event: EventTradesEventInfo;
+  metrics: EventTradesMetrics;
+  trades: EventTrade[];
+  limit: number;
+}
+
+/* ── Top Trades ── */
+
+export interface TopTradesSummary {
+  totalVolume: string;
+  tradeCount: number;
+  avgTradeSize: string;
+  buyCount: number;
+  sellCount: number;
+}
+
+export interface TopTrade {
+  tradeRef: string;
+  ts: string;
+  providerCode: string;
+  side: string | null;
+  price: string | null;
+  qty: string | null;
+  notionalUsd: string | null;
+  traderRef: string | null;
+  marketUid: string;
+  marketRef: string;
+  marketTitle: string | null;
+  eventUid: string | null;
+  eventTitle: string | null;
+  instrumentRef: string | null;
+  outcomeLabel: string | null;
+}
+
+export interface TopTradesData {
+  summary: TopTradesSummary;
+  trades: TopTrade[];
+  pagination: { limit: number; offset: number; total: number };
+}
+
 /* ── Price History ── */
 
 export interface OhlcPoint {

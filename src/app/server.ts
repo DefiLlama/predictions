@@ -11,11 +11,13 @@ import {
   getDashboardMain,
   getDashboardTreemap,
   getEventDetail,
+  getEventLatestTrades,
   getEventPriceHistory,
   getIngestHealth,
   getMarketDetail,
   getMarketPriceHistory,
   getProvidersMeta,
+  getTopTrades,
   listMarkets
 } from "../services/query-service.js";
 import type { ProviderCode } from "../types/domain.js";
@@ -193,6 +195,43 @@ export async function createServer(): Promise<ReturnType<typeof Fastify>> {
     };
   });
 
+  app.get("/v1/trades/top", async (request, reply) => {
+    const query = request.query as {
+      window?: string;
+      provider?: string;
+      limit?: string;
+      offset?: string;
+    };
+
+    const window = query.window ?? "24h";
+    if (window !== "24h" && window !== "7d" && window !== "30d") {
+      return reply.status(400).send({ error: "Invalid window. Use 24h, 7d, or 30d." });
+    }
+
+    if (query.provider && !isProviderCode(query.provider)) {
+      return reply.status(400).send({ error: "Invalid provider. Use polymarket or kalshi." });
+    }
+
+    const limit = Math.min(Number(query.limit ?? 50), 200);
+    const offset = Number(query.offset ?? 0);
+
+    if (!Number.isFinite(limit) || limit <= 0 || !Number.isFinite(offset) || offset < 0) {
+      return reply.status(400).send({ error: "Invalid pagination values." });
+    }
+
+    const result = await getTopTrades({
+      window: window as "24h" | "7d" | "30d",
+      providerCode: query.provider as ProviderCode | undefined,
+      limit,
+      offset
+    });
+
+    return {
+      data: result,
+      timestamp: new Date().toISOString()
+    };
+  });
+
   app.get("/v1/markets/:marketUid", async (request, reply) => {
     const { marketUid } = request.params as { marketUid: string };
 
@@ -217,6 +256,32 @@ export async function createServer(): Promise<ReturnType<typeof Fastify>> {
 
     return {
       data: detail,
+      timestamp: new Date().toISOString()
+    };
+  });
+
+  app.get("/v1/events/:eventUid/trades", async (request, reply) => {
+    const { eventUid } = request.params as { eventUid: string };
+    const query = request.query as {
+      limit?: string;
+    };
+
+    let limit: number | undefined;
+    if (query.limit !== undefined) {
+      const parsedLimit = Number(query.limit);
+      if (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > 100) {
+        return reply.status(400).send({ error: "Invalid limit. Use an integer between 1 and 100." });
+      }
+      limit = parsedLimit;
+    }
+
+    const trades = await getEventLatestTrades({ eventUid, limit });
+    if (!trades) {
+      return reply.status(404).send({ error: "Event not found" });
+    }
+
+    return {
+      data: trades,
       timestamp: new Date().toISOString()
     };
   });

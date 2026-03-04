@@ -46,6 +46,132 @@ export function parseEventUid(eventUid: string): { providerCode: string; eventRe
   };
 }
 
+export const EVENT_TRADES_DEFAULT_LIMIT = 50;
+export const EVENT_TRADES_MAX_LIMIT = 100;
+const EVENT_TRADE_NOTIONAL_SCALE = 6;
+const EVENT_TRADE_NOTIONAL_SCALE_FACTOR = 10n ** BigInt(EVENT_TRADE_NOTIONAL_SCALE);
+
+export function resolveEventTradesLimit(limit: number | null | undefined): number {
+  if (limit === null || limit === undefined || !Number.isFinite(limit)) {
+    return EVENT_TRADES_DEFAULT_LIMIT;
+  }
+
+  const normalized = Math.trunc(limit);
+  if (normalized < 1) {
+    return 1;
+  }
+  if (normalized > EVENT_TRADES_MAX_LIMIT) {
+    return EVENT_TRADES_MAX_LIMIT;
+  }
+
+  return normalized;
+}
+
+export function normalizeTradeSideForMetrics(side: string | null | undefined): "buy" | "sell" | null {
+  const normalized = side?.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  if (normalized === "buy" || normalized === "yes") {
+    return "buy";
+  }
+  if (normalized === "sell" || normalized === "no") {
+    return "sell";
+  }
+  return null;
+}
+
+type EventTradeMetricInput = {
+  ts: Date;
+  side: string | null;
+  notionalUsd: string | null;
+};
+
+type EventTradesMetrics = {
+  tradesCount: number;
+  totalTrades: number;
+  windowStartTs: string | null;
+  windowEndTs: string | null;
+  totalNotionalUsd: string;
+  buyTrades: number;
+  sellTrades: number;
+};
+
+function parseScaledDecimal(value: string | null | undefined): bigint | null {
+  if (!value) {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!/^[-+]?\d+(\.\d+)?$/.test(trimmed)) {
+    return null;
+  }
+
+  const isNegative = trimmed.startsWith("-");
+  const unsigned = trimmed.replace(/^[-+]/, "");
+  const [wholePartRaw, fractionPartRaw = ""] = unsigned.split(".");
+  const wholePart = BigInt(wholePartRaw || "0");
+  const fractionPart = BigInt((fractionPartRaw + "0".repeat(EVENT_TRADE_NOTIONAL_SCALE)).slice(0, EVENT_TRADE_NOTIONAL_SCALE));
+  const scaled = wholePart * EVENT_TRADE_NOTIONAL_SCALE_FACTOR + fractionPart;
+
+  return isNegative ? -scaled : scaled;
+}
+
+function formatScaledDecimal(value: bigint): string {
+  const isNegative = value < 0n;
+  const absValue = isNegative ? -value : value;
+  const wholePart = absValue / EVENT_TRADE_NOTIONAL_SCALE_FACTOR;
+  const fractionPart = (absValue % EVENT_TRADE_NOTIONAL_SCALE_FACTOR)
+    .toString()
+    .padStart(EVENT_TRADE_NOTIONAL_SCALE, "0")
+    .replace(/0+$/, "");
+
+  const prefix = isNegative ? "-" : "";
+  if (fractionPart.length === 0) {
+    return `${prefix}${wholePart.toString()}`;
+  }
+  return `${prefix}${wholePart.toString()}.${fractionPart}`;
+}
+
+export function calculateEventTradesMetrics(trades: EventTradeMetricInput[], totalTrades = trades.length): EventTradesMetrics {
+  let totalNotionalScaled = 0n;
+  let buyTrades = 0;
+  let sellTrades = 0;
+  let windowStart: Date | null = null;
+  let windowEnd: Date | null = null;
+
+  for (const trade of trades) {
+    if (!windowStart || trade.ts < windowStart) {
+      windowStart = trade.ts;
+    }
+    if (!windowEnd || trade.ts > windowEnd) {
+      windowEnd = trade.ts;
+    }
+
+    const side = normalizeTradeSideForMetrics(trade.side);
+    if (side === "buy") {
+      buyTrades += 1;
+    } else if (side === "sell") {
+      sellTrades += 1;
+    }
+
+    const notionalScaled = parseScaledDecimal(trade.notionalUsd);
+    if (notionalScaled !== null) {
+      totalNotionalScaled += notionalScaled;
+    }
+  }
+
+  return {
+    tradesCount: trades.length,
+    totalTrades,
+    windowStartTs: windowStart ? windowStart.toISOString() : null,
+    windowEndTs: windowEnd ? windowEnd.toISOString() : null,
+    totalNotionalUsd: formatScaledDecimal(totalNotionalScaled),
+    buyTrades,
+    sellTrades
+  };
+}
+
 export async function getProvidersMeta(): Promise<Array<{ code: string; name: string }>> {
   return db.select({ code: platform.code, name: platform.name }).from(platform).orderBy(asc(platform.code));
 }
@@ -818,6 +944,340 @@ export async function getEventDetail(eventUid: string): Promise<{
       status: eventRow.status
     },
     markets
+  };
+}
+
+type EventLatestTrade = {
+  tradeRef: string;
+  ts: Date;
+  side: string | null;
+  price: string | null;
+  qty: string | null;
+  notionalUsd: string | null;
+  marketUid: string;
+  marketRef: string;
+  marketTitle: string | null;
+  instrumentRef: string | null;
+  outcomeLabel: string | null;
+};
+
+export async function getEventLatestTrades(params: {
+  eventUid: string;
+  limit?: number;
+}): Promise<{
+  event: {
+    eventUid: string;
+    providerCode: string;
+    eventRef: string;
+    title: string | null;
+    category: string | null;
+    status: string | null;
+  };
+  metrics: EventTradesMetrics;
+  trades: EventLatestTrade[];
+  limit: number;
+} | null> {
+  const parsed = parseEventUid(params.eventUid);
+  if (!parsed) {
+    return null;
+  }
+
+  const resolvedLimit = resolveEventTradesLimit(params.limit);
+
+  const eventRows = await db
+    .select({
+      id: event.id,
+      providerCode: platform.code,
+      eventRef: event.eventRef,
+      title: event.title,
+      category: event.category,
+      status: event.status
+    })
+    .from(event)
+    .innerJoin(platform, eq(platform.id, event.platformId))
+    .where(and(eq(platform.code, parsed.providerCode), eq(event.eventRef, parsed.eventRef)))
+    .limit(1);
+
+  const eventRow = eventRows[0];
+  if (!eventRow) {
+    return null;
+  }
+
+  const totalTradesResult = await db.execute(sql`
+    select count(*)::bigint as "totalTrades"
+    from raw.trade_event te
+    join core.market m on m.id = te.market_id
+    where m.event_id = ${eventRow.id}
+  `);
+  const totalTradesRaw = (totalTradesResult.rows[0] as { totalTrades?: string | number | null } | undefined)?.totalTrades;
+  const parsedTotalTrades = Number(totalTradesRaw ?? 0);
+  const totalTrades = Number.isFinite(parsedTotalTrades) && parsedTotalTrades >= 0 ? parsedTotalTrades : 0;
+
+  const tradesResult = await db.execute(sql`
+    with markets as (
+      select
+        m.id as market_id,
+        m.market_uid as market_uid,
+        m.market_ref as market_ref,
+        coalesce(m.display_title, m.title, m.market_ref) as market_title
+      from core.market m
+      where m.event_id = ${eventRow.id}
+    ),
+    latest_candidates as (
+      select
+        te.trade_ref as trade_ref,
+        te.market_id as market_id,
+        te.instrument_id as instrument_id,
+        te.ts as ts,
+        te.side as side,
+        te.price::text as price,
+        te.qty::text as qty,
+        te.notional_usd::text as notional_usd
+      from markets mk
+      cross join lateral (
+        select te.trade_ref, te.market_id, te.instrument_id, te.ts, te.side, te.price, te.qty, te.notional_usd
+        from raw.trade_event te
+        where te.market_id = mk.market_id
+        order by te.ts desc
+        limit ${resolvedLimit}
+      ) te
+    )
+    select
+      lc.trade_ref as "tradeRef",
+      lc.ts as ts,
+      lc.side as side,
+      lc.price as price,
+      lc.qty as qty,
+      lc.notional_usd as "notionalUsd",
+      mk.market_uid as "marketUid",
+      mk.market_ref as "marketRef",
+      mk.market_title as "marketTitle",
+      i.instrument_ref as "instrumentRef",
+      i.outcome_label as "outcomeLabel"
+    from latest_candidates lc
+    join markets mk on mk.market_id = lc.market_id
+    left join core.instrument i on i.id = lc.instrument_id
+    order by lc.ts desc
+    limit ${resolvedLimit}
+  `);
+
+  type EventLatestTradeRow = {
+    tradeRef: string;
+    ts: Date | string;
+    side: string | null;
+    price: string | null;
+    qty: string | null;
+    notionalUsd: string | null;
+    marketUid: string;
+    marketRef: string;
+    marketTitle: string | null;
+    instrumentRef: string | null;
+    outcomeLabel: string | null;
+  };
+
+  const trades: EventLatestTrade[] = [];
+  for (const row of tradesResult.rows as EventLatestTradeRow[]) {
+    const parsedTs = row.ts instanceof Date ? row.ts : new Date(row.ts);
+    if (Number.isNaN(parsedTs.getTime())) {
+      continue;
+    }
+
+    trades.push({
+      tradeRef: row.tradeRef,
+      ts: parsedTs,
+      side: row.side,
+      price: row.price,
+      qty: row.qty,
+      notionalUsd: row.notionalUsd,
+      marketUid: row.marketUid,
+      marketRef: row.marketRef,
+      marketTitle: row.marketTitle,
+      instrumentRef: row.instrumentRef,
+      outcomeLabel: row.outcomeLabel
+    });
+  }
+
+  const metrics = calculateEventTradesMetrics(trades, totalTrades);
+
+  return {
+    event: {
+      eventUid: `${eventRow.providerCode}:${eventRow.eventRef}`,
+      providerCode: eventRow.providerCode,
+      eventRef: eventRow.eventRef,
+      title: eventRow.title,
+      category: eventRow.category,
+      status: eventRow.status
+    },
+    metrics,
+    trades,
+    limit: resolvedLimit
+  };
+}
+
+/* ── Top Trades ── */
+
+type TopTrade = {
+  tradeRef: string;
+  ts: Date;
+  providerCode: string;
+  side: string | null;
+  price: string | null;
+  qty: string | null;
+  notionalUsd: string | null;
+  traderRef: string | null;
+  marketUid: string;
+  marketRef: string;
+  marketTitle: string | null;
+  eventUid: string | null;
+  eventTitle: string | null;
+  instrumentRef: string | null;
+  outcomeLabel: string | null;
+};
+
+type TopTradesSummary = {
+  totalVolume: string;
+  tradeCount: number;
+  avgTradeSize: string;
+  buyCount: number;
+  sellCount: number;
+};
+
+type TopTradesWindow = "24h" | "7d" | "30d";
+
+function resolveWindowCutoff(window: TopTradesWindow): Date {
+  const hours: Record<TopTradesWindow, number> = { "24h": 24, "7d": 168, "30d": 720 };
+  return new Date(Date.now() - hours[window] * 60 * 60 * 1000);
+}
+
+const TOP_TRADES_MAX_LIMIT = 200;
+
+export async function getTopTrades(params: {
+  window: TopTradesWindow;
+  providerCode?: ProviderCode;
+  limit: number;
+  offset: number;
+}): Promise<{
+  summary: TopTradesSummary;
+  trades: TopTrade[];
+  pagination: { limit: number; offset: number; total: number };
+}> {
+  const cutoff = resolveWindowCutoff(params.window);
+  const limit = Math.min(Math.max(1, params.limit), TOP_TRADES_MAX_LIMIT);
+  const offset = Math.max(0, params.offset);
+  const providerCode = params.providerCode ?? null;
+
+  const providerFilter = providerCode
+    ? sql`and te.provider_code = ${providerCode}`
+    : sql``;
+
+  const summaryResult = await db.execute(sql`
+    select
+      count(*)::bigint as "tradeCount",
+      coalesce(sum(te.notional_usd), 0)::text as "totalVolume",
+      count(*) filter (where lower(te.side) in ('buy', 'yes'))::bigint as "buyCount",
+      count(*) filter (where lower(te.side) in ('sell', 'no'))::bigint as "sellCount"
+    from raw.trade_event te
+    where te.ts >= ${cutoff}
+      ${providerFilter}
+  `);
+
+  type SummaryRow = {
+    tradeCount: string | number;
+    totalVolume: string;
+    buyCount: string | number;
+    sellCount: string | number;
+  };
+
+  const summaryRow = summaryResult.rows[0] as SummaryRow | undefined;
+  const tradeCount = Number(summaryRow?.tradeCount ?? 0);
+  const totalVolume = summaryRow?.totalVolume ?? "0";
+  const buyCount = Number(summaryRow?.buyCount ?? 0);
+  const sellCount = Number(summaryRow?.sellCount ?? 0);
+  const avgTradeSize = tradeCount > 0
+    ? (Number(totalVolume) / tradeCount).toFixed(2)
+    : "0";
+
+  const tradesResult = await db.execute(sql`
+    select
+      te.trade_ref as "tradeRef",
+      te.ts as ts,
+      te.provider_code as "providerCode",
+      te.side as side,
+      te.price::text as price,
+      te.qty::text as qty,
+      te.notional_usd::text as "notionalUsd",
+      te.trader_ref as "traderRef",
+      m.market_uid as "marketUid",
+      m.market_ref as "marketRef",
+      coalesce(m.display_title, m.title, m.market_ref) as "marketTitle",
+      case when e.id is not null then te.provider_code || ':' || e.event_ref else null end as "eventUid",
+      coalesce(e.title, e.event_ref) as "eventTitle",
+      i.instrument_ref as "instrumentRef",
+      i.outcome_label as "outcomeLabel"
+    from raw.trade_event te
+    join core.market m on m.id = te.market_id
+    left join core.event e on e.id = m.event_id
+    left join core.instrument i on i.id = te.instrument_id
+    where te.ts >= ${cutoff}
+      ${providerFilter}
+    order by te.notional_usd desc nulls last, te.ts desc
+    limit ${limit} offset ${offset}
+  `);
+
+  type TopTradeRow = {
+    tradeRef: string;
+    ts: Date | string;
+    providerCode: string;
+    side: string | null;
+    price: string | null;
+    qty: string | null;
+    notionalUsd: string | null;
+    traderRef: string | null;
+    marketUid: string;
+    marketRef: string;
+    marketTitle: string | null;
+    eventUid: string | null;
+    eventTitle: string | null;
+    instrumentRef: string | null;
+    outcomeLabel: string | null;
+  };
+
+  const trades: TopTrade[] = [];
+  for (const row of tradesResult.rows as TopTradeRow[]) {
+    const parsedTs = row.ts instanceof Date ? row.ts : new Date(row.ts);
+    if (Number.isNaN(parsedTs.getTime())) {
+      continue;
+    }
+
+    trades.push({
+      tradeRef: row.tradeRef,
+      ts: parsedTs,
+      providerCode: row.providerCode,
+      side: row.side,
+      price: row.price,
+      qty: row.qty,
+      notionalUsd: row.notionalUsd,
+      traderRef: row.traderRef,
+      marketUid: row.marketUid,
+      marketRef: row.marketRef,
+      marketTitle: row.marketTitle,
+      eventUid: row.eventUid,
+      eventTitle: row.eventTitle,
+      instrumentRef: row.instrumentRef,
+      outcomeLabel: row.outcomeLabel
+    });
+  }
+
+  return {
+    summary: {
+      totalVolume,
+      tradeCount,
+      avgTradeSize,
+      buyCount,
+      sellCount
+    },
+    trades,
+    pagination: { limit, offset, total: tradeCount }
   };
 }
 

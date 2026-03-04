@@ -5,7 +5,6 @@ import { EventCard } from "@/components/event-card";
 import { TreemapChartView } from "@/components/treemap-chart";
 import { TreemapControls } from "@/components/treemap-controls";
 import { ProviderFilter } from "@/components/provider-filter";
-import { RefreshBar } from "@/components/refresh-bar";
 import { EmptyState } from "@/components/empty-state";
 
 export default async function DashboardPage({
@@ -37,7 +36,6 @@ export default async function DashboardPage({
           <Suspense>
             <ProviderFilter />
           </Suspense>
-          <RefreshBar timestamp={mainRes.timestamp} />
         </div>
       </div>
 

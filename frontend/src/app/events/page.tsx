@@ -2,7 +2,6 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { getDashboardMain } from "@/lib/api/client";
 import { ProviderFilter } from "@/components/provider-filter";
-import { RefreshBar } from "@/components/refresh-bar";
 import { EmptyState } from "@/components/empty-state";
 import { formatUsd, formatDelta, providerLabel } from "@/lib/utils/format";
 import { uidToPath } from "@/lib/utils/params";
@@ -32,7 +31,6 @@ export default async function EventsPage({
           <Suspense>
             <ProviderFilter />
           </Suspense>
-          <RefreshBar timestamp={res.timestamp} />
         </div>
       </div>
 

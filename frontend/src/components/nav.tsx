@@ -7,6 +7,7 @@ const links = [
   { href: "/", label: "Dashboard" },
   { href: "/events", label: "Events" },
   { href: "/markets", label: "Markets" },
+  { href: "/trades", label: "Top Trades" },
 ];
 
 export function Nav() {

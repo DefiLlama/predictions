@@ -44,6 +44,7 @@ const envSchema = z.object({
   KALSHI_TRADES_MAX_REQUESTS_PER_RUN: z.coerce.number().int().positive().default(30),
   KALSHI_EVENT_FALLBACK_MAX_PER_RUN: z.coerce.number().int().positive().default(2000),
   TRADES_LOOKBACK_DAYS: z.coerce.number().int().positive().default(7),
+  TRADES_MIN_NOTIONAL_USD: z.coerce.number().positive().default(100),
   OI_LOOKBACK_DAYS: z.coerce.number().int().positive().default(7),
   INGEST_INCREMENTAL_OVERLAP_SECONDS: z.coerce.number().int().nonnegative().default(5 * 60),
   MARKET_RELINK_MAX_MARKETS_PER_RUN: z.coerce.number().int().positive().default(50000),
