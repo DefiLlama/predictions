@@ -4,17 +4,7 @@ import { useRouter, useSearchParams, usePathname } from "next/navigation";
 
 const metrics = [
   { value: "volume24h", label: "Volume" },
-  { value: "oi", label: "Open Interest" },
-];
-
-const statuses = [
-  { value: "all", label: "All" },
-  { value: "active", label: "Active" },
-];
-
-const groupBys = [
-  { value: "sector", label: "Sector" },
-  { value: "providerCategory", label: "Provider Cat." },
+  { value: "liquidity", label: "Liquidity" },
 ];
 
 export function TreemapControls() {
@@ -24,8 +14,6 @@ export function TreemapControls() {
 
   const current = {
     metric: searchParams.get("metric") ?? "volume24h",
-    status: searchParams.get("status") ?? "all",
-    groupBy: searchParams.get("groupBy") ?? "sector",
   };
 
   function set(key: string, value: string) {
@@ -41,18 +29,6 @@ export function TreemapControls() {
         options={metrics}
         value={current.metric}
         onChange={(v) => set("metric", v)}
-      />
-      <ToggleGroup
-        label="Status"
-        options={statuses}
-        value={current.status}
-        onChange={(v) => set("status", v)}
-      />
-      <ToggleGroup
-        label="Group"
-        options={groupBys}
-        value={current.groupBy}
-        onChange={(v) => set("groupBy", v)}
       />
     </div>
   );

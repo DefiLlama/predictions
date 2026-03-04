@@ -127,8 +127,7 @@ export async function createServer(): Promise<ReturnType<typeof Fastify>> {
     const query = request.query as {
       provider?: string;
       metric?: string;
-      status?: string;
-      groupBy?: string;
+      coverage?: string;
     };
 
     if (query.provider && !isProviderCode(query.provider)) {
@@ -136,26 +135,20 @@ export async function createServer(): Promise<ReturnType<typeof Fastify>> {
     }
 
     const metric = query.metric ?? "volume24h";
-    const status = query.status ?? "all";
-    const groupBy = query.groupBy ?? "sector";
+    const coverage = query.coverage ?? "all";
 
-    if (metric !== "volume24h" && metric !== "oi") {
-      return reply.status(400).send({ error: "Invalid metric. Use volume24h or oi." });
+    if (metric !== "volume24h" && metric !== "liquidity") {
+      return reply.status(400).send({ error: "Invalid metric. Use volume24h or liquidity." });
     }
 
-    if (status !== "all" && status !== "active") {
-      return reply.status(400).send({ error: "Invalid status. Use all or active." });
-    }
-
-    if (groupBy !== "sector" && groupBy !== "providerCategory") {
-      return reply.status(400).send({ error: "Invalid groupBy. Use sector or providerCategory." });
+    if (coverage !== "all" && coverage !== "scope") {
+      return reply.status(400).send({ error: "Invalid coverage. Use all or scope." });
     }
 
     const treemap = await getDashboardTreemap({
       providerCode: query.provider as ProviderCode | undefined,
-      metric: metric as "volume24h" | "oi",
-      status: status as "all" | "active",
-      groupBy: groupBy as "sector" | "providerCategory"
+      metric: metric as "volume24h" | "liquidity",
+      coverage: coverage as "all" | "scope"
     });
 
     return {

@@ -64,6 +64,13 @@
       "when": 1772570200000,
       "tag": "0008_market_display_title",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1772618019000,
+      "tag": "0009_market_category_snapshot_refactor",
+      "breakpoints": true
     }
   ]
 }

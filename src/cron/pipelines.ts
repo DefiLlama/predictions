@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { rebuildMarketCategoryAssignments, refreshProviderCategory1hRollup } from "../services/category-service.js";
+import { rebuildMarketCategoryAssignments, refreshMarketCategorySnapshot1h } from "../services/category-service.js";
 import { getCheckpoint, setCheckpoint } from "../services/checkpoint-service.js";
 import type { JobRunResult } from "../services/job-log-service.js";
 import { runLoggedJob } from "../services/job-log-service.js";
@@ -326,7 +326,7 @@ function getFullCatalogStepNames(providerCode: ProviderCode): string[] {
       JOB_NAMES.POLYMARKET_SYNC_TRADES_FULL_CATALOG,
       JOB_NAMES.POLYMARKET_SYNC_OI_FULL_CATALOG,
       JOB_NAMES.CATEGORY_ASSIGN_MARKETS,
-      JOB_NAMES.ANALYTICS_ROLLUP_PROVIDER_CATEGORY_1H,
+      JOB_NAMES.ANALYTICS_SNAPSHOT_MARKET_CATEGORY_1H,
       JOB_NAMES.ANALYTICS_ROLLUP_PRICE_1H,
       JOB_NAMES.ANALYTICS_ROLLUP_LIQUIDITY_1H
     ];
@@ -341,7 +341,7 @@ function getFullCatalogStepNames(providerCode: ProviderCode): string[] {
     JOB_NAMES.KALSHI_SYNC_TRADES_FULL_CATALOG,
     JOB_NAMES.KALSHI_SYNC_OI_FULL_CATALOG,
     JOB_NAMES.CATEGORY_ASSIGN_MARKETS,
-    JOB_NAMES.ANALYTICS_ROLLUP_PROVIDER_CATEGORY_1H,
+    JOB_NAMES.ANALYTICS_SNAPSHOT_MARKET_CATEGORY_1H,
     JOB_NAMES.ANALYTICS_ROLLUP_PRICE_1H,
     JOB_NAMES.ANALYTICS_ROLLUP_LIQUIDITY_1H
   ];
@@ -633,9 +633,9 @@ function buildTopNLiveSteps(providerCode: ProviderCode, requestId: string): Step
       },
       {
         providerCode,
-        step: JOB_NAMES.ANALYTICS_ROLLUP_PROVIDER_CATEGORY_1H,
+        step: JOB_NAMES.ANALYTICS_SNAPSHOT_MARKET_CATEGORY_1H,
         mode: "topN_live",
-        run: () => refreshProviderCategory1hRollup(providerCode, { target: "scope" })
+        run: () => refreshMarketCategorySnapshot1h(providerCode)
       },
       {
         providerCode,
@@ -708,9 +708,9 @@ function buildTopNLiveSteps(providerCode: ProviderCode, requestId: string): Step
     },
     {
       providerCode,
-      step: JOB_NAMES.ANALYTICS_ROLLUP_PROVIDER_CATEGORY_1H,
+      step: JOB_NAMES.ANALYTICS_SNAPSHOT_MARKET_CATEGORY_1H,
       mode: "topN_live",
-      run: () => refreshProviderCategory1hRollup(providerCode, { target: "scope" })
+      run: () => refreshMarketCategorySnapshot1h(providerCode)
     },
     {
       providerCode,
@@ -785,9 +785,9 @@ function buildFullCatalogSteps(providerCode: ProviderCode, requestId: string, re
       },
       {
         providerCode,
-        step: JOB_NAMES.ANALYTICS_ROLLUP_PROVIDER_CATEGORY_1H,
+        step: JOB_NAMES.ANALYTICS_SNAPSHOT_MARKET_CATEGORY_1H,
         mode: "full_catalog",
-        run: () => refreshProviderCategory1hRollup(providerCode)
+        run: () => refreshMarketCategorySnapshot1h(providerCode)
       },
       {
         providerCode,
@@ -860,9 +860,9 @@ function buildFullCatalogSteps(providerCode: ProviderCode, requestId: string, re
     },
     {
       providerCode,
-      step: JOB_NAMES.ANALYTICS_ROLLUP_PROVIDER_CATEGORY_1H,
+      step: JOB_NAMES.ANALYTICS_SNAPSHOT_MARKET_CATEGORY_1H,
       mode: "full_catalog",
-      run: () => refreshProviderCategory1hRollup(providerCode)
+      run: () => refreshMarketCategorySnapshot1h(providerCode)
     },
     {
       providerCode,

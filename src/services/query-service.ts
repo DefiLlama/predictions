@@ -7,6 +7,7 @@ import {
   instrument,
   market,
   marketCategoryAssignment,
+  marketCategorySnapshot1h,
   marketLiquidity1h,
   marketPrice1h,
   marketScope,
@@ -14,7 +15,6 @@ import {
   orderbookTop,
   platform,
   pricePoint,
-  providerCategory1h,
   providerCategoryDim,
   providerCategoryMap,
   tradeEvent
@@ -2202,104 +2202,89 @@ export async function getDashboardMain(params?: {
 
 export async function getDashboardTreemap(params?: {
   providerCode?: ProviderCode;
-  metric?: "volume24h" | "oi";
-  status?: "all" | "active";
-  groupBy?: "sector" | "providerCategory";
+  metric?: "volume24h" | "liquidity";
+  coverage?: "all" | "scope";
 }): Promise<
   Array<{
     providerCode: string;
-    groupBy: "sector" | "providerCategory";
-    sourceKind: string | null;
+    coverage: "all" | "scope";
     categoryCode: string;
     categoryLabel: string;
     bucketTs: string;
     value: string;
     marketCount: number;
     activeMarketCount: number;
-    selectedMarketCount: number;
   }>
 > {
   const metric = params?.metric ?? "volume24h";
-  const status = params?.status ?? "all";
+  const coverage = params?.coverage ?? "all";
   const providerCode = params?.providerCode ?? null;
-  const groupBy = params?.groupBy ?? "sector";
-  const groupByDb = groupBy === "providerCategory" ? "provider_category" : "sector";
 
   const result = await db.execute(sql`
     with latest_bucket as (
-      select provider_code, group_by, max(bucket_ts) as bucket_ts
-      from agg.provider_category_1h
-      where group_by = ${groupByDb}
-      group by provider_code, group_by
+      select provider_code, max(bucket_ts) as bucket_ts
+      from agg.market_category_snapshot_1h
+      where coverage_mode = ${coverage}
+      group by provider_code
     )
     select
-      pc.provider_code as "providerCode",
-      pc.group_by as "groupBy",
-      pc.source_kind as "sourceKind",
-      pc.category_code as "categoryCode",
-      pc.category_label as "categoryLabel",
-      pc.bucket_ts as "bucketTs",
+      s.provider_code as "providerCode",
+      s.coverage_mode as coverage,
+      s.category_code as "categoryCode",
+      s.category_label as "categoryLabel",
+      s.bucket_ts as "bucketTs",
       (
         case
-          when ${metric} = 'oi' and ${status} = 'active' then pc.oi_active
-          when ${metric} = 'oi' then pc.oi_total
-          when ${status} = 'active' then pc.volume24h_active
-          else pc.volume24h_total
+          when ${metric} = 'liquidity' then sum(s.liquidity)
+          else sum(s.volume24h)
         end
       )::text as value,
-      pc.market_count as "marketCount",
-      pc.active_market_count as "activeMarketCount",
-      (
-        case
-          when ${status} = 'active' then pc.active_market_count
-          else pc.market_count
-        end
-      )::int as "selectedMarketCount"
-    from agg.provider_category_1h pc
+      count(*)::int as "marketCount",
+      count(*) filter (where s.status = 'active')::int as "activeMarketCount"
+    from agg.market_category_snapshot_1h s
     join latest_bucket lb
-      on lb.provider_code = pc.provider_code
-     and lb.group_by = pc.group_by
-     and lb.bucket_ts = pc.bucket_ts
-    where pc.group_by = ${groupByDb}
-      and (${providerCode}::text is null or pc.provider_code = ${providerCode})
+      on lb.provider_code = s.provider_code
+     and lb.bucket_ts = s.bucket_ts
+    where s.coverage_mode = ${coverage}
+      and (${providerCode}::text is null or s.provider_code = ${providerCode})
+    group by
+      s.provider_code,
+      s.coverage_mode,
+      s.category_code,
+      s.category_label,
+      s.bucket_ts
     order by
       (
         case
-          when ${metric} = 'oi' and ${status} = 'active' then pc.oi_active
-          when ${metric} = 'oi' then pc.oi_total
-          when ${status} = 'active' then pc.volume24h_active
-          else pc.volume24h_total
+          when ${metric} = 'liquidity' then sum(s.liquidity)
+          else sum(s.volume24h)
         end
       ) desc,
-      pc.provider_code asc,
-      pc.category_code asc
+      s.provider_code asc,
+      s.category_code asc
   `);
 
   return result.rows.map((row) => {
     const typed = row as {
       providerCode: string;
-      groupBy: "sector" | "provider_category";
-      sourceKind: string | null;
+      coverage: "all" | "scope";
       categoryCode: string;
       categoryLabel: string;
       bucketTs: string;
       value: string;
       marketCount: number | string;
       activeMarketCount: number | string;
-      selectedMarketCount: number | string;
     };
 
     return {
       providerCode: typed.providerCode,
-      groupBy: typed.groupBy === "provider_category" ? "providerCategory" : "sector",
-      sourceKind: typed.sourceKind,
+      coverage: typed.coverage,
       categoryCode: typed.categoryCode,
       categoryLabel: typed.categoryLabel,
       bucketTs: typed.bucketTs,
       value: typed.value,
       marketCount: Number(typed.marketCount),
-      activeMarketCount: Number(typed.activeMarketCount),
-      selectedMarketCount: Number(typed.selectedMarketCount)
+      activeMarketCount: Number(typed.activeMarketCount)
     };
   });
 }
@@ -2361,7 +2346,7 @@ export async function getVerifySummary(): Promise<{
   const [oiCount] = await db.select({ value: count() }).from(oiPoint5m);
   const [aggPriceCount] = await db.select({ value: count() }).from(marketPrice1h);
   const [aggLiquidityCount] = await db.select({ value: count() }).from(marketLiquidity1h);
-  const [aggProviderCategoryCount] = await db.select({ value: count() }).from(providerCategory1h);
+  const [aggMarketCategorySnapshotCount] = await db.select({ value: count() }).from(marketCategorySnapshot1h);
   const [providerCategoryDimCount] = await db.select({ value: count() }).from(providerCategoryDim);
   const [providerCategoryMapCount] = await db.select({ value: count() }).from(providerCategoryMap);
   const [scopeCount] = await db.select({ value: count() }).from(marketScope);
@@ -2482,7 +2467,7 @@ export async function getVerifySummary(): Promise<{
       "raw.oi_point_5m": oiCount?.value ?? 0,
       "agg.market_price_1h": aggPriceCount?.value ?? 0,
       "agg.market_liquidity_1h": aggLiquidityCount?.value ?? 0,
-      "agg.provider_category_1h": aggProviderCategoryCount?.value ?? 0
+      "agg.market_category_snapshot_1h": aggMarketCategorySnapshotCount?.value ?? 0
     },
     scopedCount: scopeCount?.value ?? 0,
     scopedByStatus: Object.fromEntries(

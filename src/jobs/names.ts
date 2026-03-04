@@ -8,7 +8,7 @@ export const JOB_NAMES = {
   CATEGORY_ASSIGN_MARKETS: "analytics:category:assign:markets",
   ANALYTICS_ROLLUP_PRICE_1H: "analytics:rollup:price:1h",
   ANALYTICS_ROLLUP_LIQUIDITY_1H: "analytics:rollup:liquidity:1h",
-  ANALYTICS_ROLLUP_PROVIDER_CATEGORY_1H: "analytics:rollup:provider-category:1h",
+  ANALYTICS_SNAPSHOT_MARKET_CATEGORY_1H: "analytics:snapshot:market-category:1h",
 
   POLYMARKET_SYNC_METADATA: "polymarket:sync:metadata",
   POLYMARKET_SYNC_METADATA_BACKFILL_FULL: "polymarket:sync:metadata:backfill_full",

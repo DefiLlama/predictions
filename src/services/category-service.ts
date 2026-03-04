@@ -7,9 +7,7 @@ import {
   market,
   marketCategoryAssignment,
   marketScope,
-  oiPoint5m,
   platform,
-  providerCategory1h,
   providerCategoryDim,
   providerCategoryMap
 } from "../db/schema.js";
@@ -33,10 +31,6 @@ export interface RebuildCategoryOptions {
   target?: "scope" | "all";
   maxMarkets?: number;
   requestId?: string;
-}
-
-interface ProviderCategoryRollupOptions {
-  target?: "scope" | "all";
 }
 
 interface CategoryBackfillCursor {
@@ -609,41 +603,56 @@ export async function rebuildMarketCategoryAssignments(
   };
 }
 
-export async function refreshProviderCategory1hRollup(
-  providerCode: ProviderCode,
-  options?: ProviderCategoryRollupOptions
-): Promise<JobRunResult> {
-  const scopeOnly = options?.target === "scope";
+export async function refreshMarketCategorySnapshot1h(providerCode: ProviderCode): Promise<JobRunResult> {
+  const currentBucket = sql`date_trunc('hour', now())`;
+  const retentionThreshold = sql`date_trunc('hour', now()) - interval '30 days'`;
 
   const result = await db.execute(sql`
-    with latest_oi as (
-      select distinct on (oi.market_id)
-        oi.market_id,
-        oi.value
-      from raw.oi_point_5m oi
-      where oi.provider_code = ${providerCode}
-      order by oi.market_id, oi.ts desc
+    with coverage_modes as (
+      select unnest(array['all', 'scope'])::varchar(16) as coverage_mode
     ),
-    source as (
+    deleted_current_bucket as (
+      delete from agg.market_category_snapshot_1h snapshot
+      using coverage_modes cm
+      where snapshot.provider_code = ${providerCode}
+        and snapshot.coverage_mode = cm.coverage_mode
+        and snapshot.bucket_ts = ${currentBucket}
+      returning 1
+    ),
+    inserted as (
+      insert into agg.market_category_snapshot_1h (
+        provider_code,
+        coverage_mode,
+        bucket_ts,
+        market_id,
+        category_code,
+        category_label,
+        volume24h,
+        liquidity,
+        status,
+        created_at,
+        updated_at
+      )
       select
         p.code as provider_code,
-        coalesce(cc.code, 'unknown') as sector_code,
-        coalesce(cc.label, 'Unknown') as sector_label,
-        coalesce(pc.source_kind, 'fallback_unknown') as provider_source_kind,
-        coalesce(pc.code, 'unknown') as provider_category_code,
-        coalesce(pc.label, 'Unknown') as provider_category_label,
-        coalesce(m.volume_24h, 0)::numeric as volume_24h,
-        coalesce(lo.value, 0)::numeric as oi_value,
-        case when m.status = 'active' then 1 else 0 end as is_active
+        cm.coverage_mode,
+        ${currentBucket} as bucket_ts,
+        m.id as market_id,
+        coalesce(cc.code, 'unknown') as category_code,
+        coalesce(cc.label, 'Unknown') as category_label,
+        coalesce(m.volume_24h, 0)::numeric(24, 6) as volume24h,
+        coalesce(m.liquidity, 0)::numeric(24, 6) as liquidity,
+        m.status,
+        now(),
+        now()
       from core.market m
       join core.platform p on p.id = m.platform_id
+      cross join coverage_modes cm
       left join core.market_category_assignment mca on mca.market_id = m.id
       left join core.category_dim cc on cc.id = mca.canonical_category_id
-      left join core.provider_category_dim pc on pc.id = mca.provider_category_id
-      left join latest_oi lo on lo.market_id = m.id
       where p.code = ${providerCode}
         and (
-          ${scopeOnly} = false
+          cm.coverage_mode = 'all'
           or exists (
             select 1
             from core.market_scope ms
@@ -651,96 +660,21 @@ export async function refreshProviderCategory1hRollup(
               and ms.market_id = m.id
           )
         )
+      returning 1
     ),
-    sector_agg as (
-      select
-        provider_code,
-        'sector'::varchar(32) as group_by,
-        null::varchar(64) as source_kind,
-        sector_code as category_code,
-        sector_label as category_label,
-        date_trunc('hour', now()) as bucket_ts,
-        sum(volume_24h)::numeric(24, 6) as volume24h_total,
-        sum(case when is_active = 1 then volume_24h else 0 end)::numeric(24, 6) as volume24h_active,
-        sum(oi_value)::numeric(24, 6) as oi_total,
-        sum(case when is_active = 1 then oi_value else 0 end)::numeric(24, 6) as oi_active,
-        count(*)::int as market_count,
-        sum(is_active)::int as active_market_count
-      from source
-      group by provider_code, sector_code, sector_label
-    ),
-    provider_agg as (
-      select
-        provider_code,
-        'provider_category'::varchar(32) as group_by,
-        provider_source_kind as source_kind,
-        concat(provider_source_kind, ':', provider_category_code) as category_code,
-        provider_category_label as category_label,
-        date_trunc('hour', now()) as bucket_ts,
-        sum(volume_24h)::numeric(24, 6) as volume24h_total,
-        sum(case when is_active = 1 then volume_24h else 0 end)::numeric(24, 6) as volume24h_active,
-        sum(oi_value)::numeric(24, 6) as oi_total,
-        sum(case when is_active = 1 then oi_value else 0 end)::numeric(24, 6) as oi_active,
-        count(*)::int as market_count,
-        sum(is_active)::int as active_market_count
-      from source
-      group by provider_code, provider_source_kind, provider_category_code, provider_category_label
-    ),
-    unioned as (
-      select * from sector_agg
-      union all
-      select * from provider_agg
-    ),
-    upserted as (
-      insert into agg.provider_category_1h (
-        provider_code,
-        group_by,
-        source_kind,
-        category_code,
-        category_label,
-        bucket_ts,
-        volume24h_total,
-        volume24h_active,
-        oi_total,
-        oi_active,
-        market_count,
-        active_market_count,
-        created_at,
-        updated_at
-      )
-      select
-        u.provider_code,
-        u.group_by,
-        u.source_kind,
-        u.category_code,
-        u.category_label,
-        u.bucket_ts,
-        u.volume24h_total,
-        u.volume24h_active,
-        u.oi_total,
-        u.oi_active,
-        u.market_count,
-        u.active_market_count,
-        now(),
-        now()
-      from unioned u
-      on conflict (provider_code, group_by, category_code, bucket_ts) do update
-      set
-        source_kind = excluded.source_kind,
-        category_label = excluded.category_label,
-        volume24h_total = excluded.volume24h_total,
-        volume24h_active = excluded.volume24h_active,
-        oi_total = excluded.oi_total,
-        oi_active = excluded.oi_active,
-        market_count = excluded.market_count,
-        active_market_count = excluded.active_market_count,
-        updated_at = now()
+    deleted_expired as (
+      delete from agg.market_category_snapshot_1h snapshot
+      where snapshot.provider_code = ${providerCode}
+        and snapshot.bucket_ts < ${retentionThreshold}
       returning 1
     )
-    select count(*)::int as value from upserted
+    select
+      (select count(*)::int from inserted) as inserted_count,
+      (select count(*)::int from deleted_expired) as deleted_expired_count
   `);
 
-  const rowsUpserted = Number((result.rows[0] as { value?: number } | undefined)?.value ?? 0);
+  const summary = result.rows[0] as { inserted_count?: number | string; deleted_expired_count?: number | string } | undefined;
+  const rowsUpserted = Number(summary?.inserted_count ?? 0);
   return { rowsUpserted, rowsSkipped: 0 };
 }
 

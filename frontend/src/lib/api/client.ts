@@ -49,8 +49,7 @@ export async function getDashboardMain(provider?: string) {
 export async function getDashboardTreemap(params?: {
   provider?: string;
   metric?: string;
-  status?: string;
-  groupBy?: string;
+  coverage?: string;
 }) {
   return fetchApi<ApiEnvelope<TreemapEntry[]>>("/v1/dashboard/treemap", params);
 }

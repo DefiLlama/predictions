@@ -50,7 +50,7 @@ export function TreemapChartView({ data }: { data: TreemapEntry[] }) {
         0,
       );
       const totalMkts = cat.entries.reduce(
-        (sum, e) => sum + e.selectedMarketCount,
+        (sum, e) => sum + e.marketCount,
         0,
       );
 

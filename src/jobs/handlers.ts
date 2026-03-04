@@ -12,7 +12,7 @@ import {
   syncPolymarketPrices,
   syncPolymarketTrades
 } from "../services/ingestion-service.js";
-import { rebuildMarketCategoryAssignments, refreshProviderCategory1hRollup } from "../services/category-service.js";
+import { rebuildMarketCategoryAssignments, refreshMarketCategorySnapshot1h } from "../services/category-service.js";
 import { runLoggedJob } from "../services/job-log-service.js";
 import { refreshMarketLiquidity1hRollup, refreshMarketPrice1hRollup } from "../services/rollup-service.js";
 import { rebuildScopeTopN } from "../services/scope-service.js";
@@ -72,16 +72,16 @@ export const jobHandlers: JobHandlerMap = {
     );
   },
 
-  [JOB_NAMES.ANALYTICS_ROLLUP_PROVIDER_CATEGORY_1H]: async (payload) => {
+  [JOB_NAMES.ANALYTICS_SNAPSHOT_MARKET_CATEGORY_1H]: async (payload) => {
     const providerCode = ("providerCode" in payload && payload.providerCode ? payload.providerCode : "polymarket") as ProviderCode;
 
     await runLoggedJob(
       {
         providerCode,
-        jobName: JOB_NAMES.ANALYTICS_ROLLUP_PROVIDER_CATEGORY_1H,
+        jobName: JOB_NAMES.ANALYTICS_SNAPSHOT_MARKET_CATEGORY_1H,
         requestId: payload.requestId
       },
-      async () => refreshProviderCategory1hRollup(providerCode)
+      async () => refreshMarketCategorySnapshot1h(providerCode)
     );
   },
 

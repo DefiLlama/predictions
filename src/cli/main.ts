@@ -5,7 +5,7 @@ import { env } from "../config/env.js";
 import { closeDb } from "../db/client.js";
 import { JOB_NAMES } from "../jobs/names.js";
 import { runTopNLivePipeline, runFullCatalogPipeline, runFullCatalogResumePipeline } from "../cron/pipelines.js";
-import { rebuildMarketCategoryAssignments, refreshProviderCategory1hRollup } from "../services/category-service.js";
+import { rebuildMarketCategoryAssignments, refreshMarketCategorySnapshot1h } from "../services/category-service.js";
 import { releaseLock, tryAcquireLock } from "../services/cron-lock-service.js";
 import {
   relinkMarketEvents,
@@ -458,8 +458,8 @@ async function main(): Promise<void> {
           () => rebuildMarketCategoryAssignments(providerCode, { requestId, target: "scope" })
         );
         await runLoggedStep(
-          { providerCode, jobName: JOB_NAMES.ANALYTICS_ROLLUP_PROVIDER_CATEGORY_1H, requestId },
-          () => refreshProviderCategory1hRollup(providerCode)
+          { providerCode, jobName: JOB_NAMES.ANALYTICS_SNAPSHOT_MARKET_CATEGORY_1H, requestId },
+          () => refreshMarketCategorySnapshot1h(providerCode)
         );
       }
       return;
@@ -478,8 +478,8 @@ async function main(): Promise<void> {
             })
         );
         await runLoggedStep(
-          { providerCode, jobName: JOB_NAMES.ANALYTICS_ROLLUP_PROVIDER_CATEGORY_1H, requestId },
-          () => refreshProviderCategory1hRollup(providerCode)
+          { providerCode, jobName: JOB_NAMES.ANALYTICS_SNAPSHOT_MARKET_CATEGORY_1H, requestId },
+          () => refreshMarketCategorySnapshot1h(providerCode)
         );
       }
       return;
@@ -493,8 +493,8 @@ async function main(): Promise<void> {
           () => rebuildMarketCategoryAssignments(providerCode, { requestId, target: "scope" })
         );
         await runLoggedStep(
-          { providerCode, jobName: JOB_NAMES.ANALYTICS_ROLLUP_PROVIDER_CATEGORY_1H, requestId },
-          () => refreshProviderCategory1hRollup(providerCode)
+          { providerCode, jobName: JOB_NAMES.ANALYTICS_SNAPSHOT_MARKET_CATEGORY_1H, requestId },
+          () => refreshMarketCategorySnapshot1h(providerCode)
         );
         await runLoggedStep(
           { providerCode, jobName: JOB_NAMES.ANALYTICS_ROLLUP_PRICE_1H, requestId },
@@ -533,8 +533,8 @@ async function main(): Promise<void> {
         () => syncPolymarketOpenInterest({ requestId })
       );
       await runLoggedStep(
-        { providerCode: "polymarket", jobName: JOB_NAMES.ANALYTICS_ROLLUP_PROVIDER_CATEGORY_1H, requestId },
-        () => refreshProviderCategory1hRollup("polymarket")
+        { providerCode: "polymarket", jobName: JOB_NAMES.ANALYTICS_SNAPSHOT_MARKET_CATEGORY_1H, requestId },
+        () => refreshMarketCategorySnapshot1h("polymarket")
       );
       await runLoggedStep(
         { providerCode: "polymarket", jobName: JOB_NAMES.ANALYTICS_ROLLUP_PRICE_1H, requestId },
@@ -567,8 +567,8 @@ async function main(): Promise<void> {
         () => syncKalshiOpenInterest({ requestId })
       );
       await runLoggedStep(
-        { providerCode: "kalshi", jobName: JOB_NAMES.ANALYTICS_ROLLUP_PROVIDER_CATEGORY_1H, requestId },
-        () => refreshProviderCategory1hRollup("kalshi")
+        { providerCode: "kalshi", jobName: JOB_NAMES.ANALYTICS_SNAPSHOT_MARKET_CATEGORY_1H, requestId },
+        () => refreshMarketCategorySnapshot1h("kalshi")
       );
       await runLoggedStep(
         { providerCode: "kalshi", jobName: JOB_NAMES.ANALYTICS_ROLLUP_PRICE_1H, requestId },

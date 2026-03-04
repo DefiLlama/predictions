@@ -78,15 +78,13 @@ export interface DashboardMainData {
 
 export interface TreemapEntry {
   providerCode: string;
-  groupBy: "sector" | "providerCategory";
-  sourceKind: string | null;
+  coverage: "all" | "scope";
   categoryCode: string;
   categoryLabel: string;
   bucketTs: string;
   value: string;
   marketCount: number;
   activeMarketCount: number;
-  selectedMarketCount: number;
 }
 
 /* ── Markets ── */

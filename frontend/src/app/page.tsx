@@ -15,12 +15,10 @@ export default async function DashboardPage({
   const params = await searchParams;
   const provider = typeof params.provider === "string" ? params.provider : undefined;
   const metric = typeof params.metric === "string" ? params.metric : undefined;
-  const status = typeof params.status === "string" ? params.status : undefined;
-  const groupBy = typeof params.groupBy === "string" ? params.groupBy : undefined;
 
   const [mainRes, treemapRes] = await Promise.all([
     getDashboardMain(provider),
-    getDashboardTreemap({ provider, metric, status, groupBy }),
+    getDashboardTreemap({ provider, metric, coverage: "all" }),
   ]);
 
   const { kpis, events } = mainRes.data;

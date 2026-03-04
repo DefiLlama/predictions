@@ -366,35 +366,34 @@ export const marketLiquidity1h = agg.table(
   ]
 );
 
-export const providerCategory1h = agg.table(
-  "provider_category_1h",
+export const marketCategorySnapshot1h = agg.table(
+  "market_category_snapshot_1h",
   {
     id: bigint("id", { mode: "number" }).generatedAlwaysAsIdentity().primaryKey(),
     providerCode: varchar("provider_code", { length: 64 }).notNull(),
-    groupBy: varchar("group_by", { length: 32 }).notNull().default("sector"),
-    sourceKind: varchar("source_kind", { length: 64 }),
+    coverageMode: varchar("coverage_mode", { length: 16 }).notNull().default("all"),
+    bucketTs: timestamp("bucket_ts", { withTimezone: true }).notNull(),
+    marketId: bigint("market_id", { mode: "number" })
+      .notNull()
+      .references(() => market.id, { onDelete: "cascade" }),
     categoryCode: varchar("category_code", { length: 128 }).notNull(),
     categoryLabel: varchar("category_label", { length: 128 }).notNull(),
-    bucketTs: timestamp("bucket_ts", { withTimezone: true }).notNull(),
-    volume24hTotal: numeric("volume24h_total", { precision: 24, scale: 6 }).notNull(),
-    volume24hActive: numeric("volume24h_active", { precision: 24, scale: 6 }).notNull(),
-    oiTotal: numeric("oi_total", { precision: 24, scale: 6 }).notNull(),
-    oiActive: numeric("oi_active", { precision: 24, scale: 6 }).notNull(),
-    marketCount: integer("market_count").notNull(),
-    activeMarketCount: integer("active_market_count").notNull(),
+    volume24h: numeric("volume24h", { precision: 24, scale: 6 }).notNull(),
+    liquidity: numeric("liquidity", { precision: 24, scale: 6 }).notNull(),
+    status: varchar("status", { length: 64 }).notNull(),
     createdAt: createdAtColumn(),
     updatedAt: updatedAtColumn()
   },
   (table) => [
-    uniqueIndex("provider_category_1h_provider_group_category_bucket_uq").on(
+    uniqueIndex("market_category_snapshot_1h_provider_coverage_bucket_market_uq").on(
       table.providerCode,
-      table.groupBy,
-      table.categoryCode,
-      table.bucketTs
+      table.coverageMode,
+      table.bucketTs,
+      table.marketId
     ),
-    index("provider_category_1h_bucket_idx").on(table.bucketTs),
-    index("provider_category_1h_provider_bucket_idx").on(table.providerCode, table.bucketTs),
-    index("provider_category_1h_provider_group_bucket_idx").on(table.providerCode, table.groupBy, table.bucketTs)
+    index("market_category_snapshot_1h_provider_coverage_bucket_idx").on(table.providerCode, table.coverageMode, table.bucketTs),
+    index("market_category_snapshot_1h_bucket_idx").on(table.bucketTs),
+    index("market_category_snapshot_1h_provider_category_bucket_idx").on(table.providerCode, table.categoryCode, table.bucketTs)
   ]
 );
 
