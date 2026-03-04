@@ -1847,7 +1847,12 @@ export async function getDashboardMain(params?: {
       e.category as category,
       e.start_time as "startTime",
       e.end_time as "endTime",
-      e.status as status,
+      case
+        when nullif(trim(e.status), '') is not null then e.status
+        when ea.active_market_count > 0 and (ea.latest_market_close_time is null or ea.latest_market_close_time > now()) then 'active'
+        when ea.latest_market_close_time is not null and ea.latest_market_close_time <= now() then 'closed'
+        else null
+      end as status,
       ea.market_count as "marketCount",
       ea.active_market_count as "activeMarketCount",
       ea.volume24h_sum::text as "volume24h",

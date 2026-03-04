@@ -104,6 +104,42 @@ function toNullableDepthNumericString(value: number | null): string | null {
   return value === null ? null : value.toFixed(6);
 }
 
+function asNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const parsed = Number(trimmed);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
+function deriveMarketLiquidityFromRaw(rawJson: Record<string, unknown>): number | null {
+  const candidates = [
+    asNumber(rawJson.liquidity_dollars),
+    asNumber(rawJson.liquidity),
+    asNumber(rawJson.open_interest_fp),
+    asNumber(rawJson.open_interest)
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate !== null && candidate > 0) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
 export function shouldIngestTradeByNotional(notionalUsd: number | null): boolean {
   return notionalUsd !== null && Math.abs(notionalUsd) >= env.TRADES_MIN_NOTIONAL_USD;
 }
@@ -619,6 +655,7 @@ async function upsertProviderMetadata(params: {
           status: item.status,
           closeTime: item.closeTime,
           volume24h: toNullableNumericString(item.volume24h),
+          liquidity: toNullableNumericString(deriveMarketLiquidityFromRaw(item.rawJson)),
           rawJson: item.rawJson,
           updatedAt: metadataTimestamp
         }))
@@ -633,7 +670,7 @@ async function upsertProviderMetadata(params: {
           status: sql`excluded.status`,
           closeTime: sql`excluded.close_time`,
           volume24h: sql`excluded.volume_24h`,
-          liquidity: sql`null`,
+          liquidity: sql`coalesce(excluded.liquidity, ${market.liquidity})`,
           rawJson: sql`excluded.raw_json`,
           updatedAt: metadataTimestamp
         }
