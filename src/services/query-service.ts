@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
 import { db } from "../db/client.js";
 import {
@@ -493,6 +493,7 @@ export async function getDataFreshness(): Promise<
 
 export async function listMarkets(params: {
   providerCode?: ProviderCode;
+  status?: "active" | "all";
   limit: number;
   offset: number;
 }): Promise<
@@ -508,6 +509,15 @@ export async function listMarkets(params: {
     liquidity: string | null;
   }>
 > {
+  const whereClauses = [];
+
+  if (params.providerCode) {
+    whereClauses.push(eq(platform.code, params.providerCode));
+  }
+  if ((params.status ?? "active") === "active") {
+    whereClauses.push(and(eq(market.status, "active"), or(isNull(market.closeTime), sql`${market.closeTime} > now()`)));
+  }
+
   const query = db
     .select({
       marketUid: market.marketUid,
@@ -526,8 +536,8 @@ export async function listMarkets(params: {
     .limit(params.limit)
     .offset(params.offset);
 
-  if (params.providerCode) {
-    return query.where(eq(platform.code, params.providerCode));
+  if (whereClauses.length > 0) {
+    return query.where(and(...whereClauses));
   }
 
   return query;

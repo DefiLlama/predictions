@@ -5,7 +5,7 @@ import { InstrumentTable } from "@/components/instrument-table";
 import { PriceChart } from "@/components/price-chart";
 import { EmptyState } from "@/components/empty-state";
 import { EventTradesTable } from "@/components/event-trades-table";
-import { formatUsd, providerLabel } from "@/lib/utils/format";
+import { effectiveStatus, formatUsd, providerLabel, statusBadgeClass } from "@/lib/utils/format";
 import { uidToPath } from "@/lib/utils/params";
 
 export default async function EventDetailPage({
@@ -26,6 +26,7 @@ export default async function EventDetailPage({
   }
 
   const { event, markets } = res.data;
+  const eventDisplayStatus = effectiveStatus(event.status, event.endTime);
 
   let eventPriceHistory = null;
   try {
@@ -77,15 +78,9 @@ export default async function EventDetailPage({
                   {event.category}
                 </span>
               )}
-              {event.status && (
-                <span
-                  className={`rounded px-1.5 py-0.5 ${
-                    event.status === "active"
-                      ? "bg-[var(--color-success)]/10 text-[var(--color-success)]"
-                      : "bg-[var(--bg-surface)]"
-                  }`}
-                >
-                  {event.status}
+              {eventDisplayStatus && (
+                <span className={`rounded px-1.5 py-0.5 ${statusBadgeClass(eventDisplayStatus)}`}>
+                  {eventDisplayStatus}
                 </span>
               )}
             </div>
@@ -130,35 +125,33 @@ export default async function EventDetailPage({
             <EmptyState message="No markets for this event" />
           ) : (
             <div className="space-y-3">
-              {markets.map((mkt) => (
-                <div
-                  key={mkt.marketUid}
-                  className="rounded-lg border border-[var(--bg-border)] bg-[var(--bg-card)] p-4"
-                >
-                  <div className="mb-3 flex items-start justify-between gap-4">
-                    <Link
-                      href={uidToPath(mkt.marketUid, "/markets")}
-                      className="text-sm font-medium text-[var(--text-primary)] hover:text-[var(--color-primary)] transition-colors"
-                    >
-                      {mkt.displayTitle ?? mkt.title ?? mkt.marketRef}
-                    </Link>
-                    <div className="flex items-center gap-3 shrink-0 text-xs text-[var(--text-tertiary)]">
-                      <span>{formatUsd(mkt.volume24h)} vol</span>
-                      <span>{formatUsd(mkt.liquidity)} liq</span>
-                      <span
-                        className={`rounded px-1.5 py-0.5 ${
-                          mkt.status === "active"
-                            ? "bg-[var(--color-success)]/10 text-[var(--color-success)]"
-                            : "bg-[var(--bg-surface)]"
-                        }`}
+              {markets.map((mkt) => {
+                const marketDisplayStatus = effectiveStatus(mkt.status, mkt.closeTime) ?? mkt.status;
+
+                return (
+                  <div
+                    key={mkt.marketUid}
+                    className="rounded-lg border border-[var(--bg-border)] bg-[var(--bg-card)] p-4"
+                  >
+                    <div className="mb-3 flex items-start justify-between gap-4">
+                      <Link
+                        href={uidToPath(mkt.marketUid, "/markets")}
+                        className="text-sm font-medium text-[var(--text-primary)] hover:text-[var(--color-primary)] transition-colors"
                       >
-                        {mkt.status}
-                      </span>
+                        {mkt.displayTitle ?? mkt.title ?? mkt.marketRef}
+                      </Link>
+                      <div className="flex items-center gap-3 shrink-0 text-xs text-[var(--text-tertiary)]">
+                        <span>{formatUsd(mkt.volume24h)} vol</span>
+                        <span>{formatUsd(mkt.liquidity)} liq</span>
+                        <span className={`rounded px-1.5 py-0.5 ${statusBadgeClass(marketDisplayStatus)}`}>
+                          {marketDisplayStatus}
+                        </span>
+                      </div>
                     </div>
+                    <InstrumentTable instruments={mkt.instruments} />
                   </div>
-                  <InstrumentTable instruments={mkt.instruments} />
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>

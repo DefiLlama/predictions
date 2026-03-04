@@ -162,7 +162,7 @@ function asObject(value: unknown): Record<string, unknown> {
   return {};
 }
 
-function normalizeKalshiPrice(value: unknown): number | null {
+function normalizeKalshiPriceDollars(value: unknown): number | null {
   const numeric = asNumber(value);
   if (numeric === null) {
     return null;
@@ -170,6 +170,15 @@ function normalizeKalshiPrice(value: unknown): number | null {
 
   if (numeric >= 0 && numeric <= 1) {
     return numeric;
+  }
+
+  return null;
+}
+
+function normalizeKalshiPriceCents(value: unknown): number | null {
+  const numeric = asNumber(value);
+  if (numeric === null) {
+    return null;
   }
 
   if (numeric >= 0 && numeric <= 100) {
@@ -611,7 +620,8 @@ export class KalshiAdapter implements ProviderAdapter {
               continue;
             }
 
-            const yesPrice = normalizeKalshiPrice(candle.price?.close ?? candle.price?.close_dollars);
+            const yesPrice =
+              normalizeKalshiPriceDollars(candle.price?.close_dollars) ?? normalizeKalshiPriceCents(candle.price?.close);
             if (yesPrice === null) {
               continue;
             }
@@ -803,7 +813,9 @@ export class KalshiAdapter implements ProviderAdapter {
           const instrumentRef =
             side === "yes" || side === "no" ? this.normalizeInstrumentRef(`${marketRef}:${side.toUpperCase()}`) : null;
 
-          const price = normalizeKalshiPrice(raw.yes_price_dollars ?? raw.yes_price ?? raw.price);
+          const price =
+            normalizeKalshiPriceDollars(raw.yes_price_dollars) ??
+            normalizeKalshiPriceCents(raw.yes_price ?? raw.price);
           const qty = asNumber(raw.count_fp) ?? asNumber(raw.count);
 
           points.push({

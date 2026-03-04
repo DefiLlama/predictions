@@ -1,12 +1,13 @@
 import Link from "next/link";
 import type { DashboardEvent } from "@/lib/api/types";
-import { formatUsd, formatDelta, providerLabel } from "@/lib/utils/format";
+import { effectiveStatus, formatUsd, formatDelta, providerLabel, statusBadgeClass } from "@/lib/utils/format";
 import { uidToPath } from "@/lib/utils/params";
 import { InstrumentTable } from "./instrument-table";
 
 export function EventCard({ event }: { event: DashboardEvent }) {
   const delta = formatDelta(event.maxAbsDelta24h);
   const href = uidToPath(event.eventUid, "/events");
+  const displayStatus = effectiveStatus(event.status, event.endTime ?? event.latestMarketCloseTime);
 
   return (
     <div className="rounded-lg border border-[var(--bg-border)] bg-[var(--bg-card)] p-4">
@@ -25,6 +26,11 @@ export function EventCard({ event }: { event: DashboardEvent }) {
             {event.category && (
               <span className="rounded bg-[var(--bg-surface)] px-1.5 py-0.5">
                 {event.category}
+              </span>
+            )}
+            {displayStatus && (
+              <span className={`rounded px-1.5 py-0.5 ${statusBadgeClass(displayStatus)}`}>
+                {displayStatus}
               </span>
             )}
             <span>

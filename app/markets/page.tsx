@@ -2,8 +2,10 @@ import { Suspense } from "react";
 import { listMarkets } from "@/lib/api/client";
 import { MarketCard } from "@/components/market-card";
 import { ProviderFilter } from "@/components/provider-filter";
+import { MarketStatusFilter } from "@/components/market-status-filter";
 import { Pagination } from "@/components/pagination";
 import { EmptyState } from "@/components/empty-state";
+import { effectiveStatus } from "@/lib/utils/format";
 
 const LIMIT = 50;
 
@@ -14,6 +16,7 @@ export default async function MarketsPage({
 }) {
   const params = await searchParams;
   const provider = typeof params.provider === "string" ? params.provider : undefined;
+  const status = params.status === "all" ? "all" : "active";
   const page = Math.max(
     1,
     parseInt(typeof params.page === "string" ? params.page : "1", 10) || 1,
@@ -22,11 +25,16 @@ export default async function MarketsPage({
 
   const res = await listMarkets({
     provider,
+    status,
     limit: String(LIMIT),
     offset: String(offset),
   });
 
   const markets = res.data;
+  const visibleMarkets =
+    status === "active"
+      ? markets.filter((market) => effectiveStatus(market.status, market.closeTime) === "active")
+      : markets;
   const hasNext = markets.length >= LIMIT;
 
   return (
@@ -37,16 +45,19 @@ export default async function MarketsPage({
         </h1>
         <div className="flex items-center gap-4">
           <Suspense>
+            <MarketStatusFilter />
+          </Suspense>
+          <Suspense>
             <ProviderFilter />
           </Suspense>
         </div>
       </div>
 
-      {markets.length === 0 ? (
+      {visibleMarkets.length === 0 ? (
         <EmptyState message="No markets found" />
       ) : (
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {markets.map((market) => (
+          {visibleMarkets.map((market) => (
             <MarketCard key={market.marketUid} market={market} />
           ))}
         </div>

@@ -124,9 +124,13 @@ export async function handleDashboardTreemap(request: Request): Promise<Response
 export async function handleMarkets(request: Request): Promise<Response> {
   const searchParams = new URL(request.url).searchParams;
   const provider = searchParams.get("provider") ?? undefined;
+  const status = searchParams.get("status") ?? "active";
 
   if (provider && !isProviderCode(provider)) {
     return badRequest(request, "Invalid provider. Use polymarket or kalshi.");
+  }
+  if (status !== "active" && status !== "all") {
+    return badRequest(request, "Invalid status. Use active or all.");
   }
 
   const pagination = parsePagination(searchParams.get("limit"), searchParams.get("offset"), {
@@ -140,6 +144,7 @@ export async function handleMarkets(request: Request): Promise<Response> {
 
   const markets = await listMarkets({
     providerCode: provider as ProviderCode | undefined,
+    status: status as "active" | "all",
     limit: pagination.limit,
     offset: pagination.offset,
   });

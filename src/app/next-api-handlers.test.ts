@@ -51,6 +51,16 @@ describe("Next API handlers", () => {
     assert.equal(payload.error, "Invalid pagination values.");
   });
 
+  test("markets rejects invalid status", async () => {
+    const response = await handleMarkets(
+      new Request("http://127.0.0.1:3000/v1/markets?status=closed"),
+    );
+
+    assert.equal(response.status, 400);
+    const payload = (await response.json()) as { error: string };
+    assert.equal(payload.error, "Invalid status. Use active or all.");
+  });
+
   test("top trades rejects invalid window", async () => {
     const response = await handleTopTrades(
       new Request("http://127.0.0.1:3000/v1/trades/top?window=1d"),

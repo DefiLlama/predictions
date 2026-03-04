@@ -66,6 +66,34 @@ export function formatTs(iso: string | null | undefined): string {
   }) + " UTC";
 }
 
+/** Derive display status, forcing "closed" once cutoff time has passed. */
+export function effectiveStatus(
+  status: string | null | undefined,
+  cutoffIso: string | null | undefined,
+  nowMs = Date.now(),
+): string | null {
+  const normalized = typeof status === "string" ? status.trim().toLowerCase() : null;
+  if (!normalized && !cutoffIso) {
+    return null;
+  }
+
+  if (cutoffIso) {
+    const cutoffMs = Date.parse(cutoffIso);
+    if (!Number.isNaN(cutoffMs) && nowMs >= cutoffMs && normalized !== "archived") {
+      return "closed";
+    }
+  }
+
+  return normalized;
+}
+
+/** Shared status badge classes for active vs non-active states. */
+export function statusBadgeClass(status: string | null | undefined): string {
+  return status === "active"
+    ? "bg-[var(--color-success)]/10 text-[var(--color-success)]"
+    : "bg-[var(--bg-surface)] text-[var(--text-tertiary)]";
+}
+
 /** Provider code → display name */
 export function providerLabel(code: string): string {
   switch (code) {

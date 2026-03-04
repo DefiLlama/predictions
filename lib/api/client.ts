@@ -58,6 +58,7 @@ export async function getDashboardTreemap(params?: {
 
 export async function listMarkets(params?: {
   provider?: string;
+  status?: "active" | "all";
   limit?: string;
   offset?: string;
 }) {

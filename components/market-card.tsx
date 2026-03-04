@@ -1,10 +1,11 @@
 import Link from "next/link";
 import type { MarketSummary } from "@/lib/api/types";
-import { formatUsd, providerLabel } from "@/lib/utils/format";
+import { effectiveStatus, formatUsd, providerLabel, statusBadgeClass } from "@/lib/utils/format";
 import { uidToPath } from "@/lib/utils/params";
 
 export function MarketCard({ market }: { market: MarketSummary }) {
   const href = uidToPath(market.marketUid, "/markets");
+  const displayStatus = effectiveStatus(market.status, market.closeTime) ?? market.status;
 
   return (
     <Link
@@ -20,15 +21,7 @@ export function MarketCard({ market }: { market: MarketSummary }) {
             <span className="rounded bg-[var(--bg-surface)] px-1.5 py-0.5">
               {providerLabel(market.providerCode)}
             </span>
-            <span
-              className={`rounded px-1.5 py-0.5 ${
-                market.status === "active"
-                  ? "bg-[var(--color-success)]/10 text-[var(--color-success)]"
-                  : "bg-[var(--bg-surface)] text-[var(--text-tertiary)]"
-              }`}
-            >
-              {market.status}
-            </span>
+            <span className={`rounded px-1.5 py-0.5 ${statusBadgeClass(displayStatus)}`}>{displayStatus}</span>
           </div>
         </div>
         <div className="flex flex-col items-end gap-1 shrink-0">

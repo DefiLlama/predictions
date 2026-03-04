@@ -3,7 +3,7 @@ import Link from "next/link";
 import { getMarketDetail, getMarketPriceHistory } from "@/lib/api/client";
 import { InstrumentTable } from "@/components/instrument-table";
 import { PriceChart } from "@/components/price-chart";
-import { formatUsd, formatTs, providerLabel } from "@/lib/utils/format";
+import { effectiveStatus, formatUsd, formatTs, providerLabel, statusBadgeClass } from "@/lib/utils/format";
 
 export default async function MarketDetailPage({
   params,
@@ -21,6 +21,7 @@ export default async function MarketDetailPage({
   }
 
   const { market, instruments } = detailRes.data;
+  const marketDisplayStatus = effectiveStatus(market.status, market.closeTime) ?? market.status;
 
   // Load price history
   let priceHistory = null;
@@ -52,14 +53,8 @@ export default async function MarketDetailPage({
             <span className="rounded bg-[var(--bg-surface)] px-1.5 py-0.5">
               {providerLabel(market.providerCode)}
             </span>
-            <span
-              className={`rounded px-1.5 py-0.5 ${
-                market.status === "active"
-                  ? "bg-[var(--color-success)]/10 text-[var(--color-success)]"
-                  : "bg-[var(--bg-surface)]"
-              }`}
-            >
-              {market.status}
+            <span className={`rounded px-1.5 py-0.5 ${statusBadgeClass(marketDisplayStatus)}`}>
+              {marketDisplayStatus}
             </span>
             {market.closeTime && (
               <span>Closes {formatTs(market.closeTime)}</span>
