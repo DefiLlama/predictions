@@ -1,5 +1,5 @@
 import type { DashboardKpi, TopTradesSummary } from "@/lib/api/types";
-import { formatUsd, providerLabel, relativeTime } from "@/lib/utils/format";
+import { formatUsd, providerLabel } from "@/lib/utils/format";
 
 export function KpiCards({
   kpis,
@@ -28,9 +28,6 @@ export function KpiCards({
             <h3 className="text-sm font-semibold text-[var(--text-primary)]">
               {providerLabel(kpi.providerCode)}
             </h3>
-            <span className="text-xs text-[var(--text-tertiary)]">
-              {relativeTime(kpi.latestPriceTs)}
-            </span>
           </div>
           <div className="grid grid-cols-3 gap-2">
             <Stat label="Scoped" value={kpi.scopedMarkets} />

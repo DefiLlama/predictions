@@ -17,7 +17,7 @@ const envSchema = z.object({
   POLYMARKET_ORDERBOOK_CONCURRENCY: z.coerce.number().int().positive().default(24),
   POLYMARKET_TRADES_MARKET_CONCURRENCY: z.coerce.number().int().positive().default(6),
   POLYMARKET_OI_MARKET_CONCURRENCY: z.coerce.number().int().positive().default(12),
-  POLYMARKET_SCOPE_TOP_N: z.coerce.number().int().positive().default(1000),
+  POLYMARKET_SCOPE_TOP_N: z.coerce.number().int().positive().default(1500),
   POLYMARKET_METADATA_RUN_BUDGET_MS: z.coerce.number().int().positive().default(10 * 60 * 1000),
   POLYMARKET_METADATA_MAX_REQUESTS_PER_RUN: z.coerce.number().int().positive().default(150),
   POLYMARKET_TRADES_RUN_BUDGET_MS: z.coerce.number().int().positive().default(60 * 1000),
