@@ -31,6 +31,29 @@ describe("Next API handlers", () => {
     assert.equal(payload.error, "Invalid provider. Use polymarket or kalshi.");
   });
 
+  test("dashboard main rejects invalid limit", async () => {
+    const response = await handleDashboardMain(
+      new Request("http://127.0.0.1:3000/v1/dashboard/main?limit=0"),
+    );
+
+    assert.equal(response.status, 400);
+    const payload = (await response.json()) as { error: string };
+    assert.equal(payload.error, "Invalid limit. Use an integer between 1 and 100.");
+  });
+
+  test("dashboard main rejects invalid market limit", async () => {
+    const response = await handleDashboardMain(
+      new Request("http://127.0.0.1:3000/v1/dashboard/main?marketLimitPerEvent=21"),
+    );
+
+    assert.equal(response.status, 400);
+    const payload = (await response.json()) as { error: string };
+    assert.equal(
+      payload.error,
+      "Invalid marketLimitPerEvent. Use an integer between 1 and 20.",
+    );
+  });
+
   test("dashboard treemap rejects invalid coverage", async () => {
     const response = await handleDashboardTreemap(
       new Request("http://127.0.0.1:3000/v1/dashboard/treemap?coverage=bad"),

@@ -1166,6 +1166,7 @@ export async function getTopTrades(params: {
   providerCode?: ProviderCode;
   limit: number;
   offset: number;
+  summaryOnly?: boolean;
 }): Promise<{
   summary: TopTradesSummary;
   trades: TopTrade[];
@@ -1175,6 +1176,7 @@ export async function getTopTrades(params: {
   const limit = Math.min(Math.max(1, params.limit), TOP_TRADES_MAX_LIMIT);
   const offset = Math.max(0, params.offset);
   const providerCode = params.providerCode ?? null;
+  const summaryOnly = params.summaryOnly ?? false;
 
   const providerFilter = providerCode
     ? sql`and te.provider_code = ${providerCode}`
@@ -1206,76 +1208,77 @@ export async function getTopTrades(params: {
   const avgTradeSize = tradeCount > 0
     ? (Number(totalVolume) / tradeCount).toFixed(2)
     : "0";
-
-  const tradesResult = await db.execute(sql`
-    select
-      te.trade_ref as "tradeRef",
-      te.ts as ts,
-      te.provider_code as "providerCode",
-      te.side as side,
-      te.price::text as price,
-      te.qty::text as qty,
-      te.notional_usd::text as "notionalUsd",
-      te.trader_ref as "traderRef",
-      m.market_uid as "marketUid",
-      m.market_ref as "marketRef",
-      coalesce(m.display_title, m.title, m.market_ref) as "marketTitle",
-      case when e.id is not null then te.provider_code || ':' || e.event_ref else null end as "eventUid",
-      coalesce(e.title, e.event_ref) as "eventTitle",
-      i.instrument_ref as "instrumentRef",
-      i.outcome_label as "outcomeLabel"
-    from raw.trade_event te
-    join core.market m on m.id = te.market_id
-    left join core.event e on e.id = m.event_id
-    left join core.instrument i on i.id = te.instrument_id
-    where te.ts >= ${cutoff}
-      ${providerFilter}
-    order by te.notional_usd desc nulls last, te.ts desc
-    limit ${limit} offset ${offset}
-  `);
-
-  type TopTradeRow = {
-    tradeRef: string;
-    ts: Date | string;
-    providerCode: string;
-    side: string | null;
-    price: string | null;
-    qty: string | null;
-    notionalUsd: string | null;
-    traderRef: string | null;
-    marketUid: string;
-    marketRef: string;
-    marketTitle: string | null;
-    eventUid: string | null;
-    eventTitle: string | null;
-    instrumentRef: string | null;
-    outcomeLabel: string | null;
-  };
-
   const trades: TopTrade[] = [];
-  for (const row of tradesResult.rows as TopTradeRow[]) {
-    const parsedTs = row.ts instanceof Date ? row.ts : new Date(row.ts);
-    if (Number.isNaN(parsedTs.getTime())) {
-      continue;
-    }
+  if (!summaryOnly) {
+    const tradesResult = await db.execute(sql`
+      select
+        te.trade_ref as "tradeRef",
+        te.ts as ts,
+        te.provider_code as "providerCode",
+        te.side as side,
+        te.price::text as price,
+        te.qty::text as qty,
+        te.notional_usd::text as "notionalUsd",
+        te.trader_ref as "traderRef",
+        m.market_uid as "marketUid",
+        m.market_ref as "marketRef",
+        coalesce(m.display_title, m.title, m.market_ref) as "marketTitle",
+        case when e.id is not null then te.provider_code || ':' || e.event_ref else null end as "eventUid",
+        coalesce(e.title, e.event_ref) as "eventTitle",
+        i.instrument_ref as "instrumentRef",
+        i.outcome_label as "outcomeLabel"
+      from raw.trade_event te
+      join core.market m on m.id = te.market_id
+      left join core.event e on e.id = m.event_id
+      left join core.instrument i on i.id = te.instrument_id
+      where te.ts >= ${cutoff}
+        ${providerFilter}
+      order by te.notional_usd desc nulls last, te.ts desc
+      limit ${limit} offset ${offset}
+    `);
 
-    trades.push({
-      tradeRef: row.tradeRef,
-      ts: parsedTs,
-      providerCode: row.providerCode,
-      side: row.side,
-      price: row.price,
-      qty: row.qty,
-      notionalUsd: row.notionalUsd,
-      traderRef: row.traderRef,
-      marketUid: row.marketUid,
-      marketRef: row.marketRef,
-      marketTitle: row.marketTitle,
-      eventUid: row.eventUid,
-      eventTitle: row.eventTitle,
-      instrumentRef: row.instrumentRef,
-      outcomeLabel: row.outcomeLabel
-    });
+    type TopTradeRow = {
+      tradeRef: string;
+      ts: Date | string;
+      providerCode: string;
+      side: string | null;
+      price: string | null;
+      qty: string | null;
+      notionalUsd: string | null;
+      traderRef: string | null;
+      marketUid: string;
+      marketRef: string;
+      marketTitle: string | null;
+      eventUid: string | null;
+      eventTitle: string | null;
+      instrumentRef: string | null;
+      outcomeLabel: string | null;
+    };
+
+    for (const row of tradesResult.rows as TopTradeRow[]) {
+      const parsedTs = row.ts instanceof Date ? row.ts : new Date(row.ts);
+      if (Number.isNaN(parsedTs.getTime())) {
+        continue;
+      }
+
+      trades.push({
+        tradeRef: row.tradeRef,
+        ts: parsedTs,
+        providerCode: row.providerCode,
+        side: row.side,
+        price: row.price,
+        qty: row.qty,
+        notionalUsd: row.notionalUsd,
+        traderRef: row.traderRef,
+        marketUid: row.marketUid,
+        marketRef: row.marketRef,
+        marketTitle: row.marketTitle,
+        eventUid: row.eventUid,
+        eventTitle: row.eventTitle,
+        instrumentRef: row.instrumentRef,
+        outcomeLabel: row.outcomeLabel
+      });
+    }
   }
 
   return {
@@ -1787,6 +1790,9 @@ function parseDateValue(value: Date | string | null): Date | null {
 
 export async function getDashboardMain(params?: {
   providerCode?: ProviderCode;
+  limit?: number;
+  marketLimitPerEvent?: number;
+  includeNested?: boolean;
 }): Promise<{
   kpis: Array<{
     providerCode: string;
@@ -1799,6 +1805,10 @@ export async function getDashboardMain(params?: {
   events: DashboardMainEvent[];
 }> {
   const providerCode = params?.providerCode ?? null;
+  const limit = params?.limit ?? null;
+  const marketLimitPerEvent = params?.marketLimitPerEvent ?? null;
+  const includeNested = params?.includeNested ?? true;
+  const eventLimitClause = limit === null ? sql`` : sql`limit ${limit}`;
 
   const kpis = await getCoverageMeta().then((rows) =>
     rows
@@ -1867,6 +1877,7 @@ export async function getDashboardMain(params?: {
       ea.liquidity_sum desc,
       p.code asc,
       e.event_ref asc
+    ${eventLimitClause}
   `);
 
   type EventRow = {
@@ -1914,44 +1925,135 @@ export async function getDashboardMain(params?: {
     });
   }
 
-  const marketResult = await db.execute(sql`
-    with scoped_markets as (
+  const buildEvents = (): DashboardMainEvent[] =>
+    eventRows
+      .map((row) => eventById.get(Number(row.eventId)))
+      .filter((row): row is DashboardMainEvent => row !== undefined);
+
+  const selectedEventIds = eventRows.map((row) => Number(row.eventId));
+  const eventIdValuesSql = sql.join(selectedEventIds.map((id) => sql`(${id}::bigint)`), sql`,`);
+
+  if (!includeNested) {
+    const deltaResult = await db.execute(sql`
+      with selected_events(event_id) as (
+        values ${eventIdValuesSql}
+      ),
+      scoped_instruments as (
+        select
+          se.event_id,
+          i.id as instrument_id
+        from selected_events se
+        join core.market m on m.event_id = se.event_id
+        join core.market_scope ms on ms.market_id = m.id
+        join core.instrument i on i.market_id = m.id
+      )
       select
-        m.id,
-        m.event_id,
-        m.platform_id,
-        m.market_uid,
-        m.market_ref,
-        m.title,
-        m.display_title,
-        m.status,
-        m.close_time,
-        m.volume_24h,
-        m.liquidity
-      from core.market_scope ms
-      join core.market m on m.id = ms.market_id
-      where m.event_id is not null
+        si.event_id as "eventId",
+        max(
+          case
+            when latest.price is not null and prev.price is not null then abs(latest.price - prev.price)
+            else null
+          end
+        )::text as "maxAbsDelta24h"
+      from scoped_instruments si
+      left join lateral (
+        select pp.price
+        from raw.price_point pp
+        where pp.instrument_id = si.instrument_id
+        order by pp.ts desc
+        limit 1
+      ) latest on true
+      left join lateral (
+        select pp.price
+        from raw.price_point pp
+        where pp.instrument_id = si.instrument_id
+          and pp.ts <= now() - interval '24 hours'
+        order by pp.ts desc
+        limit 1
+      ) prev on true
+      group by si.event_id
+    `);
+
+    type DeltaRow = {
+      eventId: number | string;
+      maxAbsDelta24h: string | null;
+    };
+
+    for (const row of deltaResult.rows as DeltaRow[]) {
+      if (row.maxAbsDelta24h === null) {
+        continue;
+      }
+
+      const delta = Number(row.maxAbsDelta24h);
+      if (!Number.isFinite(delta)) {
+        continue;
+      }
+
+      maxAbsDeltaByEventId.set(Number(row.eventId), delta);
+    }
+
+    for (const [eventId, maxAbsDelta] of maxAbsDeltaByEventId.entries()) {
+      const eventDetail = eventById.get(eventId);
+      if (!eventDetail) {
+        continue;
+      }
+
+      eventDetail.maxAbsDelta24h = maxAbsDelta.toFixed(6);
+    }
+
+    return { kpis, events: buildEvents() };
+  }
+
+  const marketLimitClause =
+    marketLimitPerEvent === null ? sql`` : sql`where rm.event_rank <= ${marketLimitPerEvent}`;
+
+  const marketResult = await db.execute(sql`
+    with selected_events(event_id) as (
+      values ${eventIdValuesSql}
+    ),
+    ranked_markets as (
+      select
+        m.id as "marketId",
+        m.event_id as "eventId",
+        p.code as "providerCode",
+        m.market_uid as "marketUid",
+        m.market_ref as "marketRef",
+        m.title as title,
+        m.display_title as "displayTitle",
+        m.status as status,
+        m.close_time as "closeTime",
+        m.volume_24h::text as "volume24h",
+        m.liquidity::text as "liquidity",
+        row_number() over (
+          partition by m.event_id
+          order by
+            coalesce(m.volume_24h, 0) desc,
+            coalesce(m.liquidity, 0) desc,
+            m.market_uid asc
+        ) as event_rank
+      from selected_events se
+      join core.market m on m.event_id = se.event_id
+      join core.market_scope ms on ms.market_id = m.id
+      join core.platform p on p.id = m.platform_id
     )
     select
-      sm.id as "marketId",
-      sm.event_id as "eventId",
-      p.code as "providerCode",
-      sm.market_uid as "marketUid",
-      sm.market_ref as "marketRef",
-      sm.title as title,
-      sm.display_title as "displayTitle",
-      sm.status as status,
-      sm.close_time as "closeTime",
-      sm.volume_24h::text as "volume24h",
-      sm.liquidity::text as "liquidity"
-    from scoped_markets sm
-    join core.platform p on p.id = sm.platform_id
-    where (${providerCode}::text is null or p.code = ${providerCode})
+      rm."marketId" as "marketId",
+      rm."eventId" as "eventId",
+      rm."providerCode" as "providerCode",
+      rm."marketUid" as "marketUid",
+      rm."marketRef" as "marketRef",
+      rm.title as title,
+      rm."displayTitle" as "displayTitle",
+      rm.status as status,
+      rm."closeTime" as "closeTime",
+      rm."volume24h" as "volume24h",
+      rm."liquidity" as "liquidity"
+    from ranked_markets rm
+    ${marketLimitClause}
     order by
-      sm.event_id asc,
-      coalesce(sm.volume_24h, 0) desc,
-      coalesce(sm.liquidity, 0) desc,
-      sm.market_uid asc
+      rm."eventId" asc,
+      rm.event_rank asc,
+      rm."marketUid" asc
   `);
 
   type MarketRow = {
@@ -2000,10 +2102,7 @@ export async function getDashboardMain(params?: {
 
   const marketIds = [...marketById.keys()];
   if (marketIds.length === 0) {
-    const events = eventRows
-      .map((row) => eventById.get(Number(row.eventId)))
-      .filter((row): row is DashboardMainEvent => row !== undefined);
-    return { kpis, events };
+    return { kpis, events: buildEvents() };
   }
 
   const marketIdsSql = sql.join(marketIds.map((id) => sql`${id}`), sql`,`);
@@ -2068,10 +2167,7 @@ export async function getDashboardMain(params?: {
 
   const instrumentIds = [...instrumentById.keys()];
   if (instrumentIds.length === 0) {
-    const events = eventRows
-      .map((row) => eventById.get(Number(row.eventId)))
-      .filter((row): row is DashboardMainEvent => row !== undefined);
-    return { kpis, events };
+    return { kpis, events: buildEvents() };
   }
 
   const instrumentIdValuesSql = sql.join(instrumentIds.map((id) => sql`(${id}::bigint)`), sql`,`);
@@ -2208,11 +2304,7 @@ export async function getDashboardMain(params?: {
     eventDetail.maxAbsDelta24h = maxAbsDelta.toFixed(6);
   }
 
-  const events = eventRows
-    .map((row) => eventById.get(Number(row.eventId)))
-    .filter((row): row is DashboardMainEvent => row !== undefined);
-
-  return { kpis, events };
+  return { kpis, events: buildEvents() };
 }
 
 export async function getDashboardTreemap(params?: {

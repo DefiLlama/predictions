@@ -22,7 +22,13 @@ import { logger } from "@/src/utils/logger";
 
 import { badRequest, notFound } from "./errors";
 import { jsonWithCors } from "./response";
-import { isProviderCode, parseIntervalRange, parsePagination } from "./validation";
+import {
+  isProviderCode,
+  parseBooleanFlag,
+  parseIntervalRange,
+  parseOptionalPositiveInt,
+  parsePagination,
+} from "./validation";
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -93,8 +99,30 @@ export async function handleDashboardMain(request: Request): Promise<Response> {
     return badRequest(request, "Invalid provider. Use polymarket or kalshi.");
   }
 
+  const limit = parseOptionalPositiveInt(searchParams.get("limit"), { max: 100 });
+  if (limit === null) {
+    return badRequest(request, "Invalid limit. Use an integer between 1 and 100.");
+  }
+
+  const marketLimitPerEvent = parseOptionalPositiveInt(searchParams.get("marketLimitPerEvent"), {
+    max: 20,
+  });
+  if (marketLimitPerEvent === null) {
+    return badRequest(
+      request,
+      "Invalid marketLimitPerEvent. Use an integer between 1 and 20.",
+    );
+  }
+
+  const includeNestedRaw = searchParams.get("includeNested");
+  const includeNested =
+    includeNestedRaw === null ? true : parseBooleanFlag(includeNestedRaw);
+
   const dashboard = await getDashboardMain({
     providerCode: provider as ProviderCode | undefined,
+    limit,
+    marketLimitPerEvent,
+    includeNested,
   });
 
   return dataEnvelope(request, dashboard);
@@ -178,11 +206,14 @@ export async function handleTopTrades(request: Request): Promise<Response> {
     return badRequest(request, "Invalid pagination values.");
   }
 
+  const summaryOnly = parseBooleanFlag(searchParams.get("summaryOnly"));
+
   const result = await getTopTrades({
     window: window as "24h" | "7d" | "30d",
     providerCode: provider as ProviderCode | undefined,
     limit: pagination.limit,
     offset: pagination.offset,
+    summaryOnly,
   });
 
   return dataEnvelope(request, result);

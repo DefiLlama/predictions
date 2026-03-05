@@ -19,6 +19,30 @@ export function parsePagination(
   return { limit, offset };
 }
 
+export function parseOptionalPositiveInt(
+  valueRaw: string | null,
+  options?: { max?: number },
+): number | undefined | null {
+  if (valueRaw === null) {
+    return undefined;
+  }
+
+  const value = Number(valueRaw);
+  if (
+    !Number.isInteger(value) ||
+    value <= 0 ||
+    (options?.max !== undefined && value > options.max)
+  ) {
+    return null;
+  }
+
+  return value;
+}
+
+export function parseBooleanFlag(valueRaw: string | null): boolean {
+  return valueRaw === "1" || valueRaw === "true";
+}
+
 export function parseIntervalRange(params: {
   intervalRaw: string | null;
   fromRaw: string | null;

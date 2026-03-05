@@ -18,7 +18,10 @@ export default async function EventsPage({
   const page = Math.max(1, parseInt(typeof params.page === "string" ? params.page : "1", 10) || 1);
   const perPage = 20;
 
-  const res = await getDashboardMain(provider);
+  const res = await getDashboardMain({
+    provider,
+    includeNested: "0",
+  });
   const allEvents = res.data.events;
   const visibleEvents =
     status === "active"

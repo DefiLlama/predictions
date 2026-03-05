@@ -41,10 +41,13 @@ async function fetchApi<T>(
 
 /* ── Dashboard ── */
 
-export async function getDashboardMain(provider?: string) {
-  return fetchApi<ApiEnvelope<DashboardMainData>>("/v1/dashboard/main", {
-    provider,
-  });
+export async function getDashboardMain(params?: {
+  provider?: string;
+  limit?: string;
+  includeNested?: string;
+  marketLimitPerEvent?: string;
+}) {
+  return fetchApi<ApiEnvelope<DashboardMainData>>("/v1/dashboard/main", params);
 }
 
 export async function getDashboardTreemap(params?: {
@@ -88,6 +91,7 @@ export async function getTopTrades(params?: {
   provider?: string;
   limit?: string;
   offset?: string;
+  summaryOnly?: string;
 }) {
   return fetchApi<ApiEnvelope<TopTradesData>>("/v1/trades/top", params);
 }

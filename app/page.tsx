@@ -15,9 +15,14 @@ export default async function DashboardPage({
   const provider = typeof params.provider === "string" ? params.provider : undefined;
 
   const [mainRes, treemapRes, topTradesRes] = await Promise.all([
-    getDashboardMain(provider),
+    getDashboardMain({
+      provider,
+      limit: "12",
+      includeNested: "1",
+      marketLimitPerEvent: "2",
+    }),
     getDashboardTreemap({ provider, coverage: "all" }),
-    getTopTrades({ window: "24h", provider, limit: "1", offset: "0" }),
+    getTopTrades({ window: "24h", provider, summaryOnly: "1" }),
   ]);
 
   const { kpis, events } = mainRes.data;
