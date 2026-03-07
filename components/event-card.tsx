@@ -8,10 +8,15 @@ export function EventCard({ event }: { event: DashboardEvent }) {
   const delta = formatDelta(event.maxAbsDelta24h);
   const href = uidToPath(event.eventUid, "/events");
   const displayStatus = effectiveStatus(event.status, event.endTime ?? event.latestMarketCloseTime);
+  const isActive = displayStatus === "active";
 
   return (
-    <div className="rounded-lg border border-[var(--bg-border)] bg-[var(--bg-card)] p-4">
-      <div className="mb-3 flex items-start justify-between gap-4">
+    <div
+      className={`rounded-lg border bg-[var(--bg-card)] p-4 transition-colors hover:bg-[var(--bg-card-hover)] ${
+        isActive ? "border-[var(--color-primary)]/20" : "border-[var(--bg-border)]"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
           <Link
             href={href}
@@ -19,41 +24,43 @@ export function EventCard({ event }: { event: DashboardEvent }) {
           >
             {event.title ?? event.eventUid}
           </Link>
-          <div className="mt-1 flex items-center gap-2 text-xs text-[var(--text-tertiary)]">
-            <span className="rounded bg-[var(--bg-surface)] px-1.5 py-0.5">
+          <div className="mt-1.5 flex items-center gap-1.5 text-xs">
+            <span className="text-[var(--text-tertiary)]">
               {providerLabel(event.providerCode)}
             </span>
             {event.category && (
-              <span className="rounded bg-[var(--bg-surface)] px-1.5 py-0.5">
-                {event.category}
-              </span>
+              <>
+                <span className="text-[var(--bg-muted)]">&middot;</span>
+                <span className="text-[var(--text-tertiary)]">{event.category}</span>
+              </>
             )}
             {displayStatus && (
-              <span className={`rounded px-1.5 py-0.5 ${statusBadgeClass(displayStatus)}`}>
-                {displayStatus}
-              </span>
+              <>
+                <span className="text-[var(--bg-muted)]">&middot;</span>
+                <span className={statusBadgeClass(displayStatus)}>{displayStatus}</span>
+              </>
             )}
-            <span>
-              {event.activeMarketCount}/{event.marketCount} markets
+            <span className="text-[var(--bg-muted)]">&middot;</span>
+            <span className="text-[var(--text-tertiary)]">
+              {event.activeMarketCount}/{event.marketCount} mkts
             </span>
           </div>
         </div>
-        <div className="flex flex-col items-end gap-1 shrink-0">
-          <span className="text-sm font-medium text-[var(--text-primary)]">
+        <div className="flex flex-col items-end gap-0.5 shrink-0 text-right">
+          <span className="text-sm font-semibold font-mono tabular-nums text-[var(--text-primary)]">
             {formatUsd(event.volume24h)}
           </span>
-          <span className="text-xs text-[var(--text-tertiary)]">24h vol</span>
-          <span className={`text-xs font-mono ${delta.className}`}>
+          <span className="text-[10px] uppercase tracking-wider text-[var(--text-tertiary)]">24h vol</span>
+          <span className={`text-xs font-mono tabular-nums ${delta.className}`}>
             {delta.text}
           </span>
         </div>
       </div>
 
-      {/* Show top market instruments inline */}
       {event.markets.length > 0 && (
-        <div className="mt-3 border-t border-[var(--bg-border)]/50 pt-3">
+        <div className="mt-3 border-t border-[var(--bg-border)]/40 pt-3 space-y-2">
           {event.markets.slice(0, 2).map((mkt) => (
-            <div key={mkt.marketUid} className="mb-2 last:mb-0">
+            <div key={mkt.marketUid}>
               <Link
                 href={uidToPath(mkt.marketUid, "/markets")}
                 className="mb-1 block text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--color-primary)] transition-colors truncate"
@@ -66,9 +73,9 @@ export function EventCard({ event }: { event: DashboardEvent }) {
           {event.markets.length > 2 && (
             <Link
               href={href}
-              className="mt-1 block text-xs text-[var(--color-primary)] hover:underline"
+              className="block text-xs font-medium text-[var(--color-primary)] hover:underline"
             >
-              +{event.markets.length - 2} more markets
+              +{event.markets.length - 2} more &rarr;
             </Link>
           )}
         </div>

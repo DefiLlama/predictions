@@ -22,15 +22,15 @@ export function InstrumentTable({
     <div className="overflow-x-auto">
       <table className="w-full text-xs">
         <thead>
-          <tr className="border-b border-[var(--bg-border)] text-left text-[var(--text-tertiary)]">
-            <th className="pb-2 pr-4 font-medium">Outcome</th>
-            <th className="pb-2 pr-4 font-medium text-right">Price</th>
+          <tr className="text-left text-[10px] uppercase tracking-wider text-[var(--text-tertiary)]">
+            <th className="pb-1.5 pr-4 font-medium">Outcome</th>
+            <th className="pb-1.5 pr-4 font-medium text-right">Price</th>
             {showDelta && (
-              <th className="pb-2 pr-4 font-medium text-right">24h</th>
+              <th className="pb-1.5 pr-4 font-medium text-right">24h</th>
             )}
-            <th className="pb-2 pr-4 font-medium text-right">Bid</th>
-            <th className="pb-2 pr-4 font-medium text-right">Ask</th>
-            <th className="pb-2 font-medium text-right">Spread</th>
+            <th className="pb-1.5 pr-4 font-medium text-right">Bid</th>
+            <th className="pb-1.5 pr-4 font-medium text-right">Ask</th>
+            <th className="pb-1.5 font-medium text-right">Spread</th>
           </tr>
         </thead>
         <tbody>
@@ -39,26 +39,26 @@ export function InstrumentTable({
             return (
               <tr
                 key={inst.instrumentRef}
-                className="border-b border-[var(--bg-border)]/50 last:border-0"
+                className="border-t border-[var(--bg-border)]/30"
               >
-                <td className="py-1.5 pr-4 text-[var(--text-primary)]">
+                <td className="py-1.5 pr-4 text-[var(--text-secondary)]">
                   {inst.outcomeLabel ?? inst.instrumentRef}
                 </td>
-                <td className="py-1.5 pr-4 text-right font-mono text-[var(--text-primary)]">
+                <td className="py-1.5 pr-4 text-right font-mono tabular-nums font-medium text-[var(--text-primary)]">
                   {formatPct(inst.latestPrice)}
                 </td>
                 {showDelta && (
-                  <td className={`py-1.5 pr-4 text-right font-mono ${delta?.className ?? ""}`}>
-                    {delta?.text ?? "—"}
+                  <td className={`py-1.5 pr-4 text-right font-mono tabular-nums ${delta?.className ?? ""}`}>
+                    {delta?.text ?? "\u2014"}
                   </td>
                 )}
-                <td className="py-1.5 pr-4 text-right font-mono text-[var(--text-secondary)]">
+                <td className="py-1.5 pr-4 text-right font-mono tabular-nums text-[var(--text-tertiary)]">
                   {formatPct(inst.bestBid)}
                 </td>
-                <td className="py-1.5 pr-4 text-right font-mono text-[var(--text-secondary)]">
+                <td className="py-1.5 pr-4 text-right font-mono tabular-nums text-[var(--text-tertiary)]">
                   {formatPct(inst.bestAsk)}
                 </td>
-                <td className="py-1.5 text-right font-mono text-[var(--text-tertiary)]">
+                <td className="py-1.5 text-right font-mono tabular-nums text-[var(--text-tertiary)]">
                   {formatCents(inst.spread)}
                 </td>
               </tr>

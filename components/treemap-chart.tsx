@@ -12,20 +12,19 @@ import { formatUsd, providerLabel } from "@/lib/utils/format";
 echarts.use([ETreemap, TooltipComponent, CanvasRenderer]);
 
 const CATEGORY_COLORS = [
-  "#6366f1", "#8b5cf6", "#a855f7", "#d946ef",
-  "#ec4899", "#f43f5e", "#f97316", "#eab308",
-  "#84cc16", "#22c55e", "#14b8a6", "#06b6d4",
-  "#3b82f6", "#2563eb",
+  "#c8915a", "#a8784e", "#8b6d4a", "#7a8c5a",
+  "#5a8c6d", "#4a7a7a", "#5a6d8c", "#6d5a8c",
+  "#8c5a7a", "#8c6d5a", "#9a8a5e", "#6b8a6b",
+  "#7a6b5a", "#5a7a6b",
 ];
 
 const PROVIDER_COLORS: Record<string, string> = {
-  polymarket: "#3b82f6",
-  kalshi: "#22c55e",
+  polymarket: "#5a8ed4",
+  kalshi: "#5bba6f",
 };
 
 export function TreemapChartView({ data }: { data: TreemapEntry[] }) {
   const option = useMemo(() => {
-    // Group entries by category, then split by provider
     const categoryMap = new Map<
       string,
       { label: string; entries: TreemapEntry[] }
@@ -60,7 +59,7 @@ export function TreemapChartView({ data }: { data: TreemapEntry[] }) {
         itemStyle: { color: CATEGORY_COLORS[i % CATEGORY_COLORS.length] },
         label: {
           show: true,
-          color: "#fff",
+          color: "#f5efe6",
           fontSize: 12,
           fontWeight: 600 as const,
           formatter: `{b}\n${totalMkts} mkts`,
@@ -73,7 +72,7 @@ export function TreemapChartView({ data }: { data: TreemapEntry[] }) {
           },
           label: {
             show: true,
-            color: "#fff",
+            color: "#f5efe6",
             fontSize: 10,
             formatter: `${cat.label} / ${providerLabel(e.providerCode)}\n${formatUsd(e.value)}`,
           },
@@ -99,31 +98,29 @@ export function TreemapChartView({ data }: { data: TreemapEntry[] }) {
           breadcrumb: { show: false },
           levels: [
             {
-              // Category level
               itemStyle: {
-                borderColor: "#0d1117",
+                borderColor: "#1a1714",
                 borderWidth: 3,
                 gapWidth: 3,
               },
               upperLabel: {
                 show: true,
                 height: 20,
-                color: "#fff",
+                color: "#f5efe6",
                 fontSize: 11,
                 fontWeight: 600 as const,
                 backgroundColor: "transparent",
               },
             },
             {
-              // Provider level
               itemStyle: {
-                borderColor: "#0d1117",
+                borderColor: "#1a1714",
                 borderWidth: 1,
                 gapWidth: 1,
               },
               label: {
                 show: true,
-                color: "#fff",
+                color: "#f5efe6",
                 fontSize: 10,
               },
             },

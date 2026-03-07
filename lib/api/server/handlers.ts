@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 
 import { db } from "@/src/db/client";
+import { getDashboardBenchmarks } from "@/src/services/defillama-service";
 import {
   getCategoryQualityMeta,
   getCoverageMeta,
@@ -126,6 +127,18 @@ export async function handleDashboardMain(request: Request): Promise<Response> {
   });
 
   return dataEnvelope(request, dashboard);
+}
+
+export async function handleDashboardBenchmarks(request: Request): Promise<Response> {
+  const searchParams = new URL(request.url).searchParams;
+  const provider = searchParams.get("provider") ?? undefined;
+
+  if (provider && !isProviderCode(provider)) {
+    return badRequest(request, "Invalid provider. Use polymarket or kalshi.");
+  }
+
+  const benchmarks = await getDashboardBenchmarks(provider as ProviderCode | undefined);
+  return dataEnvelope(request, benchmarks);
 }
 
 export async function handleDashboardTreemap(request: Request): Promise<Response> {

@@ -8,6 +8,7 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(["trace", "debug", "info", "warn", "error", "fatal"]).default("info"),
   DATABASE_URL: z.string().url().default("postgres://postgres:postgres@localhost:5432/prediction_markets"),
   CORS_ORIGIN: z.string().default("*"),
+  DEFILLAMA_PRO_API_KEY: z.string().optional(),
 
   POLYMARKET_GAMMA_BASE_URL: z.string().url().default("https://gamma-api.polymarket.com"),
   POLYMARKET_CLOB_BASE_URL: z.string().url().default("https://clob.polymarket.com"),

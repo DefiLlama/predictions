@@ -3,46 +3,41 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --font-inter: "Inter var", "Inter-fallback", sans-serif;
-  --font-mono: "JetBrains Mono", monospace;
+  --font-sans: var(--font-space-grotesk), "Space Grotesk", system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace, monospace;
 }
 
 @layer base {
-  @font-face {
-    font-family: "Inter-fallback";
-    size-adjust: 107%;
-    src: local("Arial");
-  }
-
   :root {
     color-scheme: dark;
 
-    /* Text */
-    --text-primary: oklch(0.985 0 0);
-    --text-secondary: oklch(0.824 0.009 271.3);
-    --text-tertiary: oklch(0.553 0.029 270.9);
-    --text-disabled: oklch(0.65 0 0);
+    /* Text — warm-tinted off-whites */
+    --text-primary: oklch(0.92 0.006 80);
+    --text-secondary: oklch(0.65 0.008 75);
+    --text-tertiary: oklch(0.46 0.012 70);
+    --text-disabled: oklch(0.36 0.008 70);
 
-    /* Backgrounds */
-    --bg-app: oklch(0.148 0.004 228.8);
-    --bg-card: oklch(0.194 0.004 229);
-    --bg-card-hover: oklch(0.23 0.006 230);
-    --bg-surface: oklch(0.21 0.008 274.5);
-    --bg-input: oklch(0.292 0.005 248);
-    --bg-border: oklch(0.255 0.002 247.9);
-    --bg-muted: oklch(0.47 0.025 273.6);
+    /* Backgrounds — warm charcoal spectrum */
+    --bg-app: oklch(0.13 0.005 60);
+    --bg-card: oklch(0.165 0.005 60);
+    --bg-card-hover: oklch(0.19 0.007 55);
+    --bg-surface: oklch(0.145 0.005 60);
+    --bg-input: oklch(0.21 0.005 60);
+    --bg-border: oklch(0.23 0.004 60);
+    --bg-muted: oklch(0.35 0.01 65);
 
-    /* Brand / Accent */
-    --color-primary: oklch(0.571 0.191 258.5);
-    --color-primary-hover: oklch(0.571 0.191 258.5 / 0.2);
+    /* Accent — steel blue */
+    --color-primary: oklch(0.68 0.14 250);
+    --color-primary-hover: oklch(0.68 0.14 250 / 0.15);
+    --color-primary-muted: oklch(0.68 0.14 250 / 0.06);
 
     /* Status */
-    --color-success: oklch(0.692 0.181 145.5);
-    --color-error: oklch(0.621 0.19 27.1);
-    --color-warning: oklch(0.82 0.147 81.2);
+    --color-success: oklch(0.72 0.17 155);
+    --color-error: oklch(0.65 0.2 25);
+    --color-warning: oklch(0.82 0.147 81);
 
     /* Dividers */
-    --divider: oklch(0.289 0 0 / 0.435);
+    --divider: oklch(0.23 0.004 60 / 0.5);
   }
 
   * {
@@ -57,7 +52,7 @@
   body {
     background-color: var(--bg-app);
     color: var(--text-primary);
-    font-family: var(--font-inter);
+    font-family: var(--font-sans);
     font-size: 0.875rem;
     line-height: 1.5;
   }

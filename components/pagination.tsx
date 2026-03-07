@@ -28,17 +28,19 @@ export function Pagination({
       <button
         disabled={page <= 1}
         onClick={() => go(page - 1)}
-        className="rounded-md bg-[var(--bg-card)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-card-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        className="rounded-md border border-[var(--bg-border)] bg-[var(--bg-card)] px-4 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-card-hover)] hover:text-[var(--text-primary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
       >
-        Previous
+        &larr; Prev
       </button>
-      <span className="text-sm text-[var(--text-secondary)]">Page {page}</span>
+      <span className="text-xs font-mono tabular-nums text-[var(--text-tertiary)]">
+        {page}
+      </span>
       <button
         disabled={!hasNext}
         onClick={() => go(page + 1)}
-        className="rounded-md bg-[var(--bg-card)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-card-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        className="rounded-md border border-[var(--bg-border)] bg-[var(--bg-card)] px-4 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-card-hover)] hover:text-[var(--text-primary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
       >
-        Next
+        Next &rarr;
       </button>
     </div>
   );

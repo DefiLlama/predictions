@@ -5,9 +5,9 @@ import { uidToPath } from "@/lib/utils/params";
 import { EmptyState } from "@/components/empty-state";
 
 function formatQty(value: string | null): string {
-  if (value === null) return "—";
+  if (value === null) return "\u2014";
   const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return "—";
+  if (!Number.isFinite(parsed)) return "\u2014";
   return parsed.toLocaleString("en-US", {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
@@ -15,7 +15,7 @@ function formatQty(value: string | null): string {
 }
 
 function renderSide(side: string | null): { text: string; className: string } {
-  if (!side) return { text: "—", className: "text-[var(--text-tertiary)]" };
+  if (!side) return { text: "\u2014", className: "text-[var(--text-tertiary)]" };
   const normalized = side.trim().toLowerCase();
   if (normalized === "buy" || normalized === "yes") {
     return { text: "Buy", className: "text-[var(--color-success)]" };
@@ -27,9 +27,9 @@ function renderSide(side: string | null): { text: string; className: string } {
 }
 
 function truncateAddress(ref: string | null): string {
-  if (!ref) return "—";
+  if (!ref) return "\u2014";
   if (ref.length <= 12) return ref;
-  return `${ref.slice(0, 6)}…${ref.slice(-4)}`;
+  return `${ref.slice(0, 6)}\u2026${ref.slice(-4)}`;
 }
 
 export function TopTradesTable({
@@ -47,18 +47,18 @@ export function TopTradesTable({
     <div className="overflow-x-auto rounded-lg border border-[var(--bg-border)]">
       <table className="w-full text-xs">
         <thead>
-          <tr className="border-b border-[var(--bg-border)] bg-[var(--bg-surface)] text-left text-[var(--text-tertiary)]">
-            <th className="px-3 py-2 font-medium">#</th>
-            <th className="px-3 py-2 font-medium">Time</th>
-            <th className="px-3 py-2 font-medium">Provider</th>
-            <th className="px-3 py-2 font-medium">Event</th>
-            <th className="px-3 py-2 font-medium">Market</th>
-            <th className="px-3 py-2 font-medium">Outcome</th>
-            <th className="px-3 py-2 font-medium text-right">Side</th>
-            <th className="px-3 py-2 font-medium text-right">Price</th>
-            <th className="px-3 py-2 font-medium text-right">Qty</th>
-            <th className="px-3 py-2 font-medium text-right">Notional</th>
-            <th className="px-3 py-2 font-medium">Trader</th>
+          <tr className="border-b border-[var(--bg-border)] bg-[var(--bg-surface)] text-left text-[10px] uppercase tracking-wider text-[var(--text-tertiary)]">
+            <th className="px-3 py-2.5 font-medium">#</th>
+            <th className="px-3 py-2.5 font-medium">Time</th>
+            <th className="px-3 py-2.5 font-medium">Provider</th>
+            <th className="px-3 py-2.5 font-medium">Event</th>
+            <th className="px-3 py-2.5 font-medium">Market</th>
+            <th className="px-3 py-2.5 font-medium">Outcome</th>
+            <th className="px-3 py-2.5 font-medium text-right">Side</th>
+            <th className="px-3 py-2.5 font-medium text-right">Price</th>
+            <th className="px-3 py-2.5 font-medium text-right">Qty</th>
+            <th className="px-3 py-2.5 font-medium text-right">Notional</th>
+            <th className="px-3 py-2.5 font-medium">Trader</th>
           </tr>
         </thead>
         <tbody>
@@ -67,9 +67,9 @@ export function TopTradesTable({
             return (
               <tr
                 key={trade.tradeRef}
-                className="border-b border-[var(--bg-border)]/50 last:border-0"
+                className="border-b border-[var(--bg-border)]/30 last:border-0 transition-colors hover:bg-[var(--bg-card-hover)]"
               >
-                <td className="px-3 py-2 text-[var(--text-tertiary)]">
+                <td className="px-3 py-2 font-mono tabular-nums text-[var(--text-tertiary)]">
                   {offset + idx + 1}
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 text-[var(--text-secondary)]">
@@ -82,35 +82,35 @@ export function TopTradesTable({
                   {trade.eventUid ? (
                     <Link
                       href={uidToPath(trade.eventUid, "/events")}
-                      className="text-[var(--color-primary)] underline decoration-[var(--color-primary)]/30 hover:decoration-[var(--color-primary)]"
+                      className="text-[var(--color-primary)] hover:underline"
                     >
-                      {trade.eventTitle ?? "—"}
+                      {trade.eventTitle ?? "\u2014"}
                     </Link>
                   ) : (
-                    <span className="text-[var(--text-primary)]">{trade.eventTitle ?? "—"}</span>
+                    <span className="text-[var(--text-primary)]">{trade.eventTitle ?? "\u2014"}</span>
                   )}
                 </td>
                 <td className="max-w-[180px] truncate px-3 py-2">
                   <Link
                     href={uidToPath(trade.marketUid, "/markets")}
-                    className="text-[var(--color-primary)] underline decoration-[var(--color-primary)]/30 hover:decoration-[var(--color-primary)]"
+                    className="text-[var(--color-primary)] hover:underline"
                   >
                     {trade.marketTitle ?? trade.marketRef}
                   </Link>
                 </td>
                 <td className="px-3 py-2 text-[var(--text-secondary)]">
-                  {trade.outcomeLabel ?? trade.instrumentRef ?? "—"}
+                  {trade.outcomeLabel ?? trade.instrumentRef ?? "\u2014"}
                 </td>
                 <td className={`px-3 py-2 text-right font-medium ${side.className}`}>
                   {side.text}
                 </td>
-                <td className="px-3 py-2 text-right font-mono text-[var(--text-primary)]">
+                <td className="px-3 py-2 text-right font-mono tabular-nums text-[var(--text-primary)]">
                   {formatPct(trade.price)}
                 </td>
-                <td className="px-3 py-2 text-right font-mono text-[var(--text-secondary)]">
+                <td className="px-3 py-2 text-right font-mono tabular-nums text-[var(--text-secondary)]">
                   {formatQty(trade.qty)}
                 </td>
-                <td className="px-3 py-2 text-right font-mono font-semibold text-[var(--text-primary)]">
+                <td className="px-3 py-2 text-right font-mono tabular-nums font-semibold text-[var(--text-primary)]">
                   {formatUsd(trade.notionalUsd)}
                 </td>
                 <td className="px-3 py-2 font-mono text-[var(--text-tertiary)]">

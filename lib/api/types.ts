@@ -74,6 +74,53 @@ export interface DashboardMainData {
   events: DashboardEvent[];
 }
 
+export interface DashboardBenchmarkProvider {
+  providerCode: string;
+  chainLabel: string | null;
+  volume24h: string | null;
+  volume7d: string | null;
+  volume30d: string | null;
+  openInterest24h: string | null;
+  openInterest7d: string | null;
+  openInterest30d: string | null;
+  volumeShare24h: number | null;
+  openInterestShare24h: number | null;
+  volumeChange1d: number | null;
+  openInterestChange1d: number | null;
+  fees24h: string | null;
+  fees7d: string | null;
+  fees30d: string | null;
+  feesChange1d: number | null;
+  tvl: string | null;
+  tvlShare: number | null;
+  methodologyUrls: {
+    volume: string | null;
+    openInterest: string | null;
+    fees: string | null;
+    tvl: string | null;
+  };
+}
+
+export interface DashboardBenchmarkHistoryPoint {
+  ts: string;
+  value: string;
+}
+
+export interface DashboardBenchmarkHistorySeries {
+  providerCode: string;
+  metric: "volume" | "openInterest" | "fees" | "tvl";
+  label: string;
+  points: DashboardBenchmarkHistoryPoint[];
+}
+
+export interface DashboardBenchmarksData {
+  available: boolean;
+  source: string;
+  note: string | null;
+  providers: DashboardBenchmarkProvider[];
+  history: DashboardBenchmarkHistorySeries[];
+}
+
 /* ── Treemap ── */
 
 export interface TreemapEntry {

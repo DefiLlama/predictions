@@ -1,10 +1,22 @@
+import type { Metadata } from "next";
 import { Suspense } from "react";
-import { getDashboardMain, getDashboardTreemap, getTopTrades } from "@/lib/api/client";
+import {
+  getDashboardBenchmarks,
+  getDashboardMain,
+  getDashboardTreemap,
+  getTopTrades,
+} from "@/lib/api/client";
+import { DefiLlamaBenchmarkPanel } from "@/components/defillama-benchmark-panel";
 import { KpiCards } from "@/components/kpi-cards";
 import { EventCard } from "@/components/event-card";
 import { TreemapChartView } from "@/components/treemap-chart";
 import { ProviderFilter } from "@/components/provider-filter";
 import { EmptyState } from "@/components/empty-state";
+
+export const metadata: Metadata = {
+  title: "Dashboard | Prediction Markets",
+  description: "Provider benchmarks, category flows, and top events across Polymarket and Kalshi.",
+};
 
 export default async function DashboardPage({
   searchParams,
@@ -14,7 +26,7 @@ export default async function DashboardPage({
   const params = await searchParams;
   const provider = typeof params.provider === "string" ? params.provider : undefined;
 
-  const [mainRes, treemapRes, topTradesRes] = await Promise.all([
+  const [mainRes, treemapRes, topTradesRes, benchmarkRes] = await Promise.all([
     getDashboardMain({
       provider,
       limit: "12",
@@ -22,22 +34,26 @@ export default async function DashboardPage({
     }),
     getDashboardTreemap({ provider, coverage: "all" }),
     getTopTrades({ window: "24h", provider, summaryOnly: "1" }),
+    getDashboardBenchmarks({ provider }),
   ]);
 
   const { kpis, events } = mainRes.data;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-[var(--text-primary)]">
-          Dashboard
-        </h1>
-        <div className="flex items-center gap-4">
-          <Suspense>
-            <ProviderFilter />
-          </Suspense>
+        <div>
+          <h1 className="text-lg font-bold tracking-tight text-[var(--text-primary)]">
+            Dashboard
+          </h1>
+          <p className="mt-0.5 text-xs text-[var(--text-tertiary)]">
+            Real-time overview across prediction market protocols
+          </p>
         </div>
+        <Suspense>
+          <ProviderFilter />
+        </Suspense>
       </div>
 
       {/* KPIs */}
@@ -47,13 +63,14 @@ export default async function DashboardPage({
         providerCode={provider}
       />
 
+      {/* Benchmarks */}
+      <DefiLlamaBenchmarkPanel data={benchmarkRes.data} />
+
       {/* Treemap */}
       <section>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-[var(--text-primary)]">
-            Category Breakdown
-          </h2>
-        </div>
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
+          Category Breakdown
+        </h2>
         <div className="rounded-lg border border-[var(--bg-border)] bg-[var(--bg-card)] p-4">
           <TreemapChartView data={treemapRes.data} />
         </div>
@@ -61,7 +78,7 @@ export default async function DashboardPage({
 
       {/* Top Events */}
       <section>
-        <h2 className="mb-3 text-base font-semibold text-[var(--text-primary)]">
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-[var(--text-tertiary)]">
           Top Events
         </h2>
         {events.length === 0 ? (

@@ -35,8 +35,13 @@ export default async function EventsPage({
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-[var(--text-primary)]">Events</h1>
-        <div className="flex items-center gap-4">
+        <div>
+          <h1 className="text-lg font-bold tracking-tight text-[var(--text-primary)]">Events</h1>
+          <p className="mt-0.5 text-xs text-[var(--text-tertiary)]">
+            {visibleEvents.length} events across providers
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
           <Suspense>
             <MarketStatusFilter />
           </Suspense>
@@ -49,14 +54,14 @@ export default async function EventsPage({
       {events.length === 0 ? (
         <EmptyState message="No events found" />
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-px overflow-hidden rounded-lg border border-[var(--bg-border)]">
           {/* Table header */}
-          <div className="grid grid-cols-[1fr_120px_100px_80px_80px] gap-4 px-4 text-xs font-medium text-[var(--text-tertiary)]">
+          <div className="grid grid-cols-[1fr_120px_100px_80px_80px] gap-4 bg-[var(--bg-surface)] px-4 py-2 text-[10px] font-medium uppercase tracking-wider text-[var(--text-tertiary)]">
             <span>Event</span>
             <span className="text-right">Volume 24h</span>
             <span className="text-right">Liquidity</span>
             <span className="text-right">Markets</span>
-            <span className="text-right">24h Δ</span>
+            <span className="text-right">24h &Delta;</span>
           </div>
 
           {events.map((event) => {
@@ -66,32 +71,40 @@ export default async function EventsPage({
               <Link
                 key={event.eventUid}
                 href={uidToPath(event.eventUid, "/events")}
-                className="grid grid-cols-[1fr_120px_100px_80px_80px] gap-4 rounded-lg border border-[var(--bg-border)] bg-[var(--bg-card)] px-4 py-3 hover:bg-[var(--bg-card-hover)] transition-colors items-center"
+                className="grid grid-cols-[1fr_120px_100px_80px_80px] gap-4 bg-[var(--bg-card)] px-4 py-3 hover:bg-[var(--bg-card-hover)] transition-colors items-center"
               >
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-[var(--text-primary)] truncate">
                     {event.title ?? event.eventRef}
                   </p>
-                  <div className="mt-0.5 flex items-center gap-2 text-xs text-[var(--text-tertiary)]">
+                  <div className="mt-0.5 flex items-center gap-1.5 text-xs text-[var(--text-tertiary)]">
                     <span>{providerLabel(event.providerCode)}</span>
-                    {event.category && <span>{event.category}</span>}
+                    {event.category && (
+                      <>
+                        <span className="text-[var(--bg-muted)]">&middot;</span>
+                        <span>{event.category}</span>
+                      </>
+                    )}
                     {displayStatus && (
-                      <span className={`rounded px-1.5 py-0.5 ${statusBadgeClass(displayStatus)}`}>
-                        {displayStatus}
-                      </span>
+                      <>
+                        <span className="text-[var(--bg-muted)]">&middot;</span>
+                        <span className={statusBadgeClass(displayStatus)}>
+                          {displayStatus}
+                        </span>
+                      </>
                     )}
                   </div>
                 </div>
-                <span className="text-right text-sm font-mono text-[var(--text-primary)]">
+                <span className="text-right text-sm font-mono tabular-nums text-[var(--text-primary)]">
                   {formatUsd(event.volume24h)}
                 </span>
-                <span className="text-right text-sm font-mono text-[var(--text-secondary)]">
+                <span className="text-right text-sm font-mono tabular-nums text-[var(--text-secondary)]">
                   {formatUsd(event.liquidity)}
                 </span>
                 <span className="text-right text-sm text-[var(--text-secondary)]">
                   {event.activeMarketCount}/{event.marketCount}
                 </span>
-                <span className={`text-right text-sm font-mono ${delta.className}`}>
+                <span className={`text-right text-sm font-mono tabular-nums ${delta.className}`}>
                   {delta.text}
                 </span>
               </Link>
@@ -142,26 +155,26 @@ function EventsPagination({
       {page > 1 ? (
         <Link
           href={hrefForPage(page - 1)}
-          className="rounded-md bg-[var(--bg-card)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-card-hover)] transition-colors"
+          className="rounded-md border border-[var(--bg-border)] bg-[var(--bg-card)] px-4 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-card-hover)] hover:text-[var(--text-primary)] transition-colors"
         >
-          Previous
+          &larr; Prev
         </Link>
       ) : (
-        <span className="rounded-md bg-[var(--bg-card)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] opacity-40">
-          Previous
+        <span className="rounded-md border border-[var(--bg-border)] bg-[var(--bg-card)] px-4 py-1.5 text-xs font-medium text-[var(--text-secondary)] opacity-30">
+          &larr; Prev
         </span>
       )}
-      <span className="text-sm text-[var(--text-secondary)]">Page {page}</span>
+      <span className="text-xs font-mono tabular-nums text-[var(--text-tertiary)]">{page}</span>
       {hasNext ? (
         <Link
           href={hrefForPage(page + 1)}
-          className="rounded-md bg-[var(--bg-card)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-card-hover)] transition-colors"
+          className="rounded-md border border-[var(--bg-border)] bg-[var(--bg-card)] px-4 py-1.5 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-card-hover)] hover:text-[var(--text-primary)] transition-colors"
         >
-          Next
+          Next &rarr;
         </Link>
       ) : (
-        <span className="rounded-md bg-[var(--bg-card)] px-4 py-2 text-sm font-medium text-[var(--text-secondary)] opacity-40">
-          Next
+        <span className="rounded-md border border-[var(--bg-border)] bg-[var(--bg-card)] px-4 py-1.5 text-xs font-medium text-[var(--text-secondary)] opacity-30">
+          Next &rarr;
         </span>
       )}
     </div>

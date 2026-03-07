@@ -2,6 +2,7 @@ import type {
   ApiEnvelope,
   PaginatedEnvelope,
   DashboardMainData,
+  DashboardBenchmarksData,
   TreemapEntry,
   MarketSummary,
   MarketDetailData,
@@ -19,7 +20,7 @@ const BASE_URL =
 async function fetchApi<T>(
   path: string,
   params?: Record<string, string | undefined>,
-  options?: { revalidate?: number },
+  options?: { revalidate?: number; cache?: RequestCache },
 ): Promise<T> {
   const url = new URL(path, BASE_URL);
   if (params) {
@@ -28,9 +29,12 @@ async function fetchApi<T>(
     }
   }
 
-  const res = await fetch(url.toString(), {
-    next: { revalidate: options?.revalidate ?? 60 },
-  });
+  const res = await fetch(
+    url.toString(),
+    options?.cache
+      ? { cache: options.cache }
+      : { next: { revalidate: options?.revalidate ?? 60 } },
+  );
 
   if (!res.ok) {
     throw new Error(`API ${res.status}: ${res.statusText} – ${url.pathname}`);
@@ -55,6 +59,14 @@ export async function getDashboardTreemap(params?: {
   coverage?: string;
 }) {
   return fetchApi<ApiEnvelope<TreemapEntry[]>>("/v1/dashboard/treemap", params);
+}
+
+export async function getDashboardBenchmarks(params?: {
+  provider?: string;
+}) {
+  return fetchApi<ApiEnvelope<DashboardBenchmarksData>>("/v1/dashboard/benchmarks", params, {
+    cache: "no-store",
+  });
 }
 
 /* ── Markets ── */
