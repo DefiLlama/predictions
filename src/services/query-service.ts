@@ -270,6 +270,82 @@ export async function getCoverageMeta(): Promise<
   });
 }
 
+async function getCoverageCountsMeta(): Promise<
+  Array<{
+    providerCode: string;
+    events: number;
+    markets: number;
+    instruments: number;
+    scopedMarkets: number;
+    latestPriceTs: string | null;
+    latestOrderbookTs: string | null;
+  }>
+> {
+  const result = await db.execute(sql`
+    with providers as (
+      select id, code
+      from core.platform
+    ),
+    event_counts as (
+      select platform_id, count(*)::bigint as events
+      from core.event
+      group by platform_id
+    ),
+    market_counts as (
+      select platform_id, count(*)::bigint as markets
+      from core.market
+      group by platform_id
+    ),
+    instrument_counts as (
+      select platform_id, count(*)::bigint as instruments
+      from core.instrument
+      group by platform_id
+    ),
+    scope_counts as (
+      select platform_id, count(*)::bigint as scoped_markets
+      from core.market_scope
+      group by platform_id
+    )
+    select
+      p.code as "providerCode",
+      coalesce(ec.events, 0) as events,
+      coalesce(mc.markets, 0) as markets,
+      coalesce(ic.instruments, 0) as instruments,
+      coalesce(sc.scoped_markets, 0) as "scopedMarkets"
+    from providers p
+    left join event_counts ec on ec.platform_id = p.id
+    left join market_counts mc on mc.platform_id = p.id
+    left join instrument_counts ic on ic.platform_id = p.id
+    left join scope_counts sc on sc.platform_id = p.id
+    order by p.code
+  `);
+
+  const toCount = (value: unknown): number => {
+    const parsed = Number(value ?? 0);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  return result.rows.map((row) => {
+    const typed = row as {
+      providerCode: string;
+      events: string | number | null;
+      markets: string | number | null;
+      instruments: string | number | null;
+      scopedMarkets: string | number | null;
+    };
+
+    return {
+      providerCode: typed.providerCode,
+      events: toCount(typed.events),
+      markets: toCount(typed.markets),
+      instruments: toCount(typed.instruments),
+      scopedMarkets: toCount(typed.scopedMarkets),
+      latestPriceTs: null,
+      latestOrderbookTs: null
+    };
+  });
+}
+
 export async function getIngestHealth(): Promise<
   Array<{
     providerCode: string;
@@ -1810,7 +1886,7 @@ export async function getDashboardMain(params?: {
   const includeNested = params?.includeNested ?? true;
   const eventLimitClause = limit === null ? sql`` : sql`limit ${limit}`;
 
-  const kpis = await getCoverageMeta().then((rows) =>
+  const kpis = await getCoverageCountsMeta().then((rows) =>
     rows
       .filter((row) => providerCode === null || row.providerCode === providerCode)
       .map((row) => ({

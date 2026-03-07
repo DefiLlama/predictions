@@ -18,8 +18,7 @@ export default async function DashboardPage({
     getDashboardMain({
       provider,
       limit: "12",
-      includeNested: "1",
-      marketLimitPerEvent: "2",
+      includeNested: "0",
     }),
     getDashboardTreemap({ provider, coverage: "all" }),
     getTopTrades({ window: "24h", provider, summaryOnly: "1" }),
