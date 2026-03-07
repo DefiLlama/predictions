@@ -391,6 +391,11 @@ export const marketCategorySnapshot1h = agg.table(
       table.bucketTs,
       table.marketId
     ),
+    index("market_category_snapshot_1h_coverage_provider_bucket_idx").on(
+      table.coverageMode,
+      table.providerCode,
+      table.bucketTs
+    ),
     index("market_category_snapshot_1h_provider_coverage_bucket_idx").on(table.providerCode, table.coverageMode, table.bucketTs),
     index("market_category_snapshot_1h_bucket_idx").on(table.bucketTs),
     index("market_category_snapshot_1h_provider_category_bucket_idx").on(table.providerCode, table.categoryCode, table.bucketTs)

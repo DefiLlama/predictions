@@ -2403,10 +2403,12 @@ export async function getDashboardTreemap(params?: {
 
   const result = await db.execute(sql`
     with latest_bucket as (
-      select provider_code, max(bucket_ts) as bucket_ts
+      select distinct on (provider_code)
+        provider_code,
+        bucket_ts
       from agg.market_category_snapshot_1h
       where coverage_mode = ${coverage}
-      group by provider_code
+      order by provider_code asc, bucket_ts desc
     )
     select
       s.provider_code as "providerCode",

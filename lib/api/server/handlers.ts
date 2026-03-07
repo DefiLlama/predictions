@@ -1,12 +1,15 @@
 import { sql } from "drizzle-orm";
 
+import {
+  getCachedDashboardBenchmarks,
+  getCachedDashboardMain,
+  getCachedDashboardTreemap,
+  getCachedTopTrades,
+} from "@/lib/api/server/dashboard-data";
 import { db } from "@/src/db/client";
-import { getDashboardBenchmarks } from "@/src/services/defillama-service";
 import {
   getCategoryQualityMeta,
   getCoverageMeta,
-  getDashboardMain,
-  getDashboardTreemap,
   getDataFreshness,
   getEventDetail,
   getEventLatestTrades,
@@ -15,7 +18,6 @@ import {
   getMarketDetail,
   getMarketPriceHistory,
   getProvidersMeta,
-  getTopTrades,
   listMarkets,
 } from "@/src/services/query-service";
 import type { ProviderCode } from "@/src/types/domain";
@@ -119,7 +121,7 @@ export async function handleDashboardMain(request: Request): Promise<Response> {
   const includeNested =
     includeNestedRaw === null ? true : parseBooleanFlag(includeNestedRaw);
 
-  const dashboard = await getDashboardMain({
+  const dashboard = await getCachedDashboardMain({
     providerCode: provider as ProviderCode | undefined,
     limit,
     marketLimitPerEvent,
@@ -137,7 +139,7 @@ export async function handleDashboardBenchmarks(request: Request): Promise<Respo
     return badRequest(request, "Invalid provider. Use polymarket or kalshi.");
   }
 
-  const benchmarks = await getDashboardBenchmarks(provider as ProviderCode | undefined);
+  const benchmarks = await getCachedDashboardBenchmarks(provider as ProviderCode | undefined);
   return dataEnvelope(request, benchmarks);
 }
 
@@ -154,7 +156,7 @@ export async function handleDashboardTreemap(request: Request): Promise<Response
     return badRequest(request, "Invalid coverage. Use all or scope.");
   }
 
-  const treemap = await getDashboardTreemap({
+  const treemap = await getCachedDashboardTreemap({
     providerCode: provider as ProviderCode | undefined,
     coverage: coverage as "all" | "scope",
   });
@@ -221,7 +223,7 @@ export async function handleTopTrades(request: Request): Promise<Response> {
 
   const summaryOnly = parseBooleanFlag(searchParams.get("summaryOnly"));
 
-  const result = await getTopTrades({
+  const result = await getCachedTopTrades({
     window: window as "24h" | "7d" | "30d",
     providerCode: provider as ProviderCode | undefined,
     limit: pagination.limit,

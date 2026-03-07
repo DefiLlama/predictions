@@ -65,7 +65,7 @@ export async function getDashboardBenchmarks(params?: {
   provider?: string;
 }) {
   return fetchApi<ApiEnvelope<DashboardBenchmarksData>>("/v1/dashboard/benchmarks", params, {
-    cache: "no-store",
+    revalidate: 300,
   });
 }
 

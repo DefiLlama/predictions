@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import {
-  getDashboardBenchmarks,
-  getDashboardMain,
-  getDashboardTreemap,
-  getTopTrades,
-} from "@/lib/api/client";
+  getCachedDashboardBenchmarks,
+  getCachedDashboardMain,
+  getCachedDashboardTreemap,
+  getCachedTopTrades,
+} from "@/lib/api/server/dashboard-data";
 import { DefiLlamaBenchmarkPanel } from "@/components/defillama-benchmark-panel";
 import { KpiCards } from "@/components/kpi-cards";
 import { EventCard } from "@/components/event-card";
@@ -26,18 +26,29 @@ export default async function DashboardPage({
   const params = await searchParams;
   const provider = typeof params.provider === "string" ? params.provider : undefined;
 
-  const [mainRes, treemapRes, topTradesRes, benchmarkRes] = await Promise.all([
-    getDashboardMain({
-      provider,
-      limit: "12",
-      includeNested: "0",
+  const [mainData, treemapData, topTradesData, benchmarkData] = await Promise.all([
+    getCachedDashboardMain({
+      providerCode: provider === "polymarket" || provider === "kalshi" ? provider : undefined,
+      limit: 12,
+      includeNested: false,
     }),
-    getDashboardTreemap({ provider, coverage: "all" }),
-    getTopTrades({ window: "24h", provider, summaryOnly: "1" }),
-    getDashboardBenchmarks({ provider }),
+    getCachedDashboardTreemap({
+      providerCode: provider === "polymarket" || provider === "kalshi" ? provider : undefined,
+      coverage: "all",
+    }),
+    getCachedTopTrades({
+      window: "24h",
+      providerCode: provider === "polymarket" || provider === "kalshi" ? provider : undefined,
+      limit: 50,
+      offset: 0,
+      summaryOnly: true,
+    }),
+    getCachedDashboardBenchmarks(
+      provider === "polymarket" || provider === "kalshi" ? provider : undefined,
+    ),
   ]);
 
-  const { kpis, events } = mainRes.data;
+  const { kpis, events } = mainData;
 
   return (
     <div className="space-y-8">
@@ -59,12 +70,12 @@ export default async function DashboardPage({
       {/* KPIs */}
       <KpiCards
         kpis={kpis}
-        tradeFlow24h={topTradesRes.data.summary}
+        tradeFlow24h={topTradesData.summary}
         providerCode={provider}
       />
 
       {/* Benchmarks */}
-      <DefiLlamaBenchmarkPanel data={benchmarkRes.data} />
+      <DefiLlamaBenchmarkPanel data={benchmarkData} />
 
       {/* Treemap */}
       <section>
@@ -72,7 +83,7 @@ export default async function DashboardPage({
           Category Breakdown
         </h2>
         <div className="rounded-lg border border-[var(--bg-border)] bg-[var(--bg-card)] p-4">
-          <TreemapChartView data={treemapRes.data} />
+          <TreemapChartView data={treemapData} />
         </div>
       </section>
 

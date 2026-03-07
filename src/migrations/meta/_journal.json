@@ -71,6 +71,13 @@
       "when": 1772618019000,
       "tag": "0009_market_category_snapshot_refactor",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1772791200000,
+      "tag": "0010_treemap_latest_bucket_index",
+      "breakpoints": true
     }
   ]
 }
