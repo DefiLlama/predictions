@@ -4,6 +4,7 @@ import {
   getCachedDashboardBenchmarks,
   getCachedDashboardMain,
   getCachedDashboardTreemap,
+  getCachedProviderComparison,
   getCachedTopTrades,
 } from "@/lib/api/server/dashboard-data";
 import { db } from "@/src/db/client";
@@ -37,7 +38,11 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function dataEnvelope(request: Request, data: unknown, init?: ResponseInit): Response {
+function dataEnvelope(
+  request: Request,
+  data: unknown,
+  init?: ResponseInit,
+): Response {
   return jsonWithCors(
     request,
     {
@@ -79,17 +84,23 @@ export async function handleMetaCoverage(request: Request): Promise<Response> {
   return dataEnvelope(request, coverage);
 }
 
-export async function handleMetaIngestHealth(request: Request): Promise<Response> {
+export async function handleMetaIngestHealth(
+  request: Request,
+): Promise<Response> {
   const health = await getIngestHealth();
   return dataEnvelope(request, health);
 }
 
-export async function handleMetaDataFreshness(request: Request): Promise<Response> {
+export async function handleMetaDataFreshness(
+  request: Request,
+): Promise<Response> {
   const freshness = await getDataFreshness();
   return dataEnvelope(request, freshness);
 }
 
-export async function handleMetaCategoryQuality(request: Request): Promise<Response> {
+export async function handleMetaCategoryQuality(
+  request: Request,
+): Promise<Response> {
   const quality = await getCategoryQualityMeta();
   return dataEnvelope(request, quality);
 }
@@ -102,14 +113,22 @@ export async function handleDashboardMain(request: Request): Promise<Response> {
     return badRequest(request, "Invalid provider. Use polymarket or kalshi.");
   }
 
-  const limit = parseOptionalPositiveInt(searchParams.get("limit"), { max: 100 });
+  const limit = parseOptionalPositiveInt(searchParams.get("limit"), {
+    max: 100,
+  });
   if (limit === null) {
-    return badRequest(request, "Invalid limit. Use an integer between 1 and 100.");
+    return badRequest(
+      request,
+      "Invalid limit. Use an integer between 1 and 100.",
+    );
   }
 
-  const marketLimitPerEvent = parseOptionalPositiveInt(searchParams.get("marketLimitPerEvent"), {
-    max: 20,
-  });
+  const marketLimitPerEvent = parseOptionalPositiveInt(
+    searchParams.get("marketLimitPerEvent"),
+    {
+      max: 20,
+    },
+  );
   if (marketLimitPerEvent === null) {
     return badRequest(
       request,
@@ -131,7 +150,9 @@ export async function handleDashboardMain(request: Request): Promise<Response> {
   return dataEnvelope(request, dashboard);
 }
 
-export async function handleDashboardBenchmarks(request: Request): Promise<Response> {
+export async function handleDashboardBenchmarks(
+  request: Request,
+): Promise<Response> {
   const searchParams = new URL(request.url).searchParams;
   const provider = searchParams.get("provider") ?? undefined;
 
@@ -139,11 +160,15 @@ export async function handleDashboardBenchmarks(request: Request): Promise<Respo
     return badRequest(request, "Invalid provider. Use polymarket or kalshi.");
   }
 
-  const benchmarks = await getCachedDashboardBenchmarks(provider as ProviderCode | undefined);
+  const benchmarks = await getCachedDashboardBenchmarks(
+    provider as ProviderCode | undefined,
+  );
   return dataEnvelope(request, benchmarks);
 }
 
-export async function handleDashboardTreemap(request: Request): Promise<Response> {
+export async function handleDashboardTreemap(
+  request: Request,
+): Promise<Response> {
   const searchParams = new URL(request.url).searchParams;
   const provider = searchParams.get("provider") ?? undefined;
 
@@ -176,10 +201,14 @@ export async function handleMarkets(request: Request): Promise<Response> {
     return badRequest(request, "Invalid status. Use active or all.");
   }
 
-  const pagination = parsePagination(searchParams.get("limit"), searchParams.get("offset"), {
-    defaultLimit: 50,
-    maxLimit: 500,
-  });
+  const pagination = parsePagination(
+    searchParams.get("limit"),
+    searchParams.get("offset"),
+    {
+      defaultLimit: 50,
+      maxLimit: 500,
+    },
+  );
 
   if (!pagination) {
     return badRequest(request, "Invalid pagination values.");
@@ -212,10 +241,14 @@ export async function handleTopTrades(request: Request): Promise<Response> {
     return badRequest(request, "Invalid provider. Use polymarket or kalshi.");
   }
 
-  const pagination = parsePagination(searchParams.get("limit"), searchParams.get("offset"), {
-    defaultLimit: 50,
-    maxLimit: 200,
-  });
+  const pagination = parsePagination(
+    searchParams.get("limit"),
+    searchParams.get("offset"),
+    {
+      defaultLimit: 50,
+      maxLimit: 200,
+    },
+  );
 
   if (!pagination) {
     return badRequest(request, "Invalid pagination values.");
@@ -234,7 +267,10 @@ export async function handleTopTrades(request: Request): Promise<Response> {
   return dataEnvelope(request, result);
 }
 
-export async function handleMarketDetail(request: Request, marketUid: string): Promise<Response> {
+export async function handleMarketDetail(
+  request: Request,
+  marketUid: string,
+): Promise<Response> {
   const detail = await getMarketDetail(marketUid);
   if (!detail) {
     return notFound(request, "Market not found");
@@ -243,7 +279,10 @@ export async function handleMarketDetail(request: Request, marketUid: string): P
   return dataEnvelope(request, detail);
 }
 
-export async function handleEventDetail(request: Request, eventUid: string): Promise<Response> {
+export async function handleEventDetail(
+  request: Request,
+  eventUid: string,
+): Promise<Response> {
   const detail = await getEventDetail(eventUid);
   if (!detail) {
     return notFound(request, "Event not found");
@@ -252,15 +291,25 @@ export async function handleEventDetail(request: Request, eventUid: string): Pro
   return dataEnvelope(request, detail);
 }
 
-export async function handleEventTrades(request: Request, eventUid: string): Promise<Response> {
+export async function handleEventTrades(
+  request: Request,
+  eventUid: string,
+): Promise<Response> {
   const searchParams = new URL(request.url).searchParams;
   const limitRaw = searchParams.get("limit");
 
   let limit: number | undefined;
   if (limitRaw !== null) {
     const parsedLimit = Number(limitRaw);
-    if (!Number.isInteger(parsedLimit) || parsedLimit < 1 || parsedLimit > 100) {
-      return badRequest(request, "Invalid limit. Use an integer between 1 and 100.");
+    if (
+      !Number.isInteger(parsedLimit) ||
+      parsedLimit < 1 ||
+      parsedLimit > 100
+    ) {
+      return badRequest(
+        request,
+        "Invalid limit. Use an integer between 1 and 100.",
+      );
     }
     limit = parsedLimit;
   }
@@ -273,7 +322,10 @@ export async function handleEventTrades(request: Request, eventUid: string): Pro
   return dataEnvelope(request, trades);
 }
 
-export async function handleEventPriceHistory(request: Request, eventUid: string): Promise<Response> {
+export async function handleEventPriceHistory(
+  request: Request,
+  eventUid: string,
+): Promise<Response> {
   const searchParams = new URL(request.url).searchParams;
   const range = parseIntervalRange({
     intervalRaw: searchParams.get("interval"),
@@ -299,7 +351,10 @@ export async function handleEventPriceHistory(request: Request, eventUid: string
   return dataEnvelope(request, history);
 }
 
-export async function handleMarketPriceHistory(request: Request, marketUid: string): Promise<Response> {
+export async function handleMarketPriceHistory(
+  request: Request,
+  marketUid: string,
+): Promise<Response> {
   const searchParams = new URL(request.url).searchParams;
   const range = parseIntervalRange({
     intervalRaw: searchParams.get("interval"),
@@ -323,4 +378,11 @@ export async function handleMarketPriceHistory(request: Request, marketUid: stri
   }
 
   return dataEnvelope(request, history);
+}
+
+export async function handleProviderComparison(
+  request: Request,
+): Promise<Response> {
+  const comparison = await getCachedProviderComparison();
+  return dataEnvelope(request, comparison);
 }

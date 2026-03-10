@@ -2658,3 +2658,120 @@ export async function getVerifySummary(): Promise<{
     }>
   };
 }
+
+type ComparisonCategoryResult = {
+  providerCode: string;
+  categoryCode: string;
+  categoryLabel: string;
+  volume24h: string;
+  liquidity: string;
+  marketCount: number;
+  activeMarketCount: number;
+  openInterest: string;
+};
+
+type ComparisonTraderResult = {
+  providerCode: string;
+  categoryCode: string;
+  categoryLabel: string;
+  tradeCount: number;
+  uniqueTraders: number | null;
+  avgTradeSize: string;
+  p95TradeSize: string;
+  whaleTrades: number;
+  totalNotional: string;
+};
+
+export async function getProviderComparison(): Promise<{
+  categories: ComparisonCategoryResult[];
+  traders: ComparisonTraderResult[];
+}> {
+  const categoryResult = await db.execute(sql`
+    with market_data as (
+      select
+        p.code as provider_code,
+        cd.code as category_code,
+        cd.label as category_label,
+        m.id as market_id,
+        m.volume_24h,
+        m.liquidity,
+        m.status
+      from core.market m
+      join core.event e on e.id = m.event_id
+      join core.platform p on p.id = e.platform_id
+      join core.market_category_assignment mca on mca.market_id = m.id
+      join core.category_dim cd on cd.id = mca.category_id
+    ),
+    latest_oi as (
+      select distinct on (market_id) market_id, value
+      from raw.oi_point_5m
+      order by market_id, ts desc
+    )
+    select
+      md.provider_code as "providerCode",
+      md.category_code as "categoryCode",
+      md.category_label as "categoryLabel",
+      sum(coalesce(md.volume_24h, 0))::text as "volume24h",
+      sum(coalesce(md.liquidity, 0))::text as "liquidity",
+      count(*)::int as "marketCount",
+      count(*) filter (where md.status = 'active')::int as "activeMarketCount",
+      coalesce(sum(lo.value), 0)::text as "openInterest"
+    from market_data md
+    left join latest_oi lo on lo.market_id = md.market_id
+    group by md.provider_code, md.category_code, md.category_label
+    order by sum(coalesce(md.volume_24h, 0)) desc
+  `);
+
+  const categories: ComparisonCategoryResult[] = categoryResult.rows.map((row) => {
+    const r = row as Record<string, unknown>;
+    return {
+      providerCode: r.providerCode as string,
+      categoryCode: r.categoryCode as string,
+      categoryLabel: r.categoryLabel as string,
+      volume24h: r.volume24h as string,
+      liquidity: r.liquidity as string,
+      marketCount: Number(r.marketCount),
+      activeMarketCount: Number(r.activeMarketCount),
+      openInterest: r.openInterest as string,
+    };
+  });
+
+  const traderResult = await db.execute(sql`
+    select
+      te.provider_code as "providerCode",
+      cd.code as "categoryCode",
+      cd.label as "categoryLabel",
+      count(*)::int as "tradeCount",
+      count(distinct te.trader_ref)::int as "uniqueTraders",
+      coalesce(avg(te.notional_usd), 0)::numeric(12,2)::text as "avgTradeSize",
+      coalesce((percentile_cont(0.95) within group (order by te.notional_usd)), 0)::numeric(12,2)::text as "p95TradeSize",
+      count(*) filter (where te.notional_usd >= 10000)::int as "whaleTrades",
+      coalesce(sum(te.notional_usd), 0)::text as "totalNotional"
+    from raw.trade_event te
+    join core.market m on m.id = te.market_id
+    join core.market_category_assignment mca on mca.market_id = m.id
+    join core.category_dim cd on cd.id = mca.category_id
+    where te.ts >= now() - interval '7 days'
+    group by te.provider_code, cd.code, cd.label
+    order by count(*) desc
+  `);
+
+  const traders: ComparisonTraderResult[] = traderResult.rows.map((row) => {
+    const r = row as Record<string, unknown>;
+    const providerCode = r.providerCode as string;
+    const rawUniqueTraders = Number(r.uniqueTraders);
+    return {
+      providerCode,
+      categoryCode: r.categoryCode as string,
+      categoryLabel: r.categoryLabel as string,
+      tradeCount: Number(r.tradeCount),
+      uniqueTraders: providerCode === "kalshi" ? null : rawUniqueTraders,
+      avgTradeSize: r.avgTradeSize as string,
+      p95TradeSize: r.p95TradeSize as string,
+      whaleTrades: Number(r.whaleTrades),
+      totalNotional: r.totalNotional as string,
+    };
+  });
+
+  return { categories, traders };
+}

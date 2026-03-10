@@ -329,3 +329,33 @@ export interface EventPriceHistoryData {
   to: string;
   series: EventPriceSeries[];
 }
+
+/* ── Provider Comparison ── */
+
+export interface ComparisonCategoryRow {
+  providerCode: string;
+  categoryCode: string;
+  categoryLabel: string;
+  volume24h: string;
+  liquidity: string;
+  marketCount: number;
+  activeMarketCount: number;
+  openInterest: string;
+}
+
+export interface ComparisonTraderRow {
+  providerCode: string;
+  categoryCode: string;
+  categoryLabel: string;
+  tradeCount: number;
+  uniqueTraders: number | null;
+  avgTradeSize: string;
+  p95TradeSize: string;
+  whaleTrades: number;
+  totalNotional: string;
+}
+
+export interface ProviderComparisonData {
+  categories: ComparisonCategoryRow[];
+  traders: ComparisonTraderRow[];
+}

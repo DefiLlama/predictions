@@ -6,6 +6,7 @@ import type {
   DashboardInstrument,
   DashboardMainData,
   DashboardMarket,
+  ProviderComparisonData,
   TopTrade,
   TopTradesData,
   TreemapEntry,
@@ -14,6 +15,7 @@ import { getDashboardBenchmarks as getDashboardBenchmarksSource } from "@/src/se
 import {
   getDashboardMain as getDashboardMainSource,
   getDashboardTreemap as getDashboardTreemapSource,
+  getProviderComparison as getProviderComparisonSource,
   getTopTrades as getTopTradesSource,
 } from "@/src/services/query-service";
 import type { ProviderCode } from "@/src/types/domain";
@@ -224,4 +226,14 @@ export async function getCachedDashboardBenchmarks(
   providerCode?: ProviderCode,
 ): Promise<DashboardBenchmarksData> {
   return loadDashboardBenchmarksCached(providerCode ?? null);
+}
+
+const loadProviderComparisonCached = unstable_cache(
+  async (): Promise<ProviderComparisonData> => getProviderComparisonSource(),
+  ["provider-comparison"],
+  { revalidate: 60 },
+);
+
+export async function getCachedProviderComparison(): Promise<ProviderComparisonData> {
+  return loadProviderComparisonCached();
 }
