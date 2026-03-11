@@ -72,6 +72,7 @@ export default async function DashboardPage({
         kpis={kpis}
         tradeFlow24h={topTradesData.summary}
         providerCode={provider}
+        benchmarkProviders={benchmarkData.available ? benchmarkData.providers : undefined}
       />
 
       {/* Benchmarks */}
