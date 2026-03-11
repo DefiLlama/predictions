@@ -3,6 +3,7 @@ export function formatUsd(value: string | number | null | undefined): string {
   if (value == null) return "—";
   const n = typeof value === "string" ? parseFloat(value) : value;
   if (!isFinite(n)) return "—";
+  if (n >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(1)}B`;
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
   return `$${n.toFixed(2)}`;
